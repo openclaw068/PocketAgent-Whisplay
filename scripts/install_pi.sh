@@ -75,15 +75,17 @@ POCKETAGENT_MODE=chat
 POCKETAGENT_RECORDING_DEVICE=plughw:1,0
 POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
 
-# ULTRA++ push-to-talk (some gpiod builds want chip number, not name)
+# Whisplay HAT push-to-talk button (physical pin 11 = GPIO17)
+# (some gpiod builds want chip number, not name)
 POCKETAGENT_GPIO_CHIP=0
-POCKETAGENT_PTT_GPIO_LINE=23
-POCKETAGENT_PTT_ACTIVE_LOW=true
+POCKETAGENT_PTT_GPIO_LINE=17
+# Whisplay button is typically active-high (pressed = HIGH)
+POCKETAGENT_PTT_ACTIVE_LOW=false
 
 # Button stability (debounce/bounce)
-POCKETAGENT_PTT_MIN_HOLD_MS=2000
-POCKETAGENT_PTT_DEBOUNCE_MS=1000
-POCKETAGENT_PTT_COOLDOWN_MS=1500
+POCKETAGENT_PTT_MIN_HOLD_MS=600
+POCKETAGENT_PTT_DEBOUNCE_MS=80
+POCKETAGENT_PTT_COOLDOWN_MS=200
 
 # Optional: disable the "hold the button" spoken prompt
 POCKETAGENT_PROMPT_ON_PRESS=false
