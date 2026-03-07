@@ -16,7 +16,8 @@ apt-get install -y --no-install-recommends \
   alsa-utils \
   gpiod \
   libgpiod2 \
-  python3
+  python3 \
+  python3-pil
 
 # Node.js: install Node 20+ via NodeSource if missing.
 if ! command -v node >/dev/null 2>&1; then
