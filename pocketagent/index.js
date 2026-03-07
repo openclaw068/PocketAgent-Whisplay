@@ -13,6 +13,7 @@ import { answerReminderQuery, selectRemindersForQuery } from './query.js';
 import { setVolumePercent } from './volume.js';
 import { startButtonWatcher } from './gpio_button.js';
 import { bestReminderMatch } from './match.js';
+import { displayUpdate } from './display_client.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -149,6 +150,8 @@ function parseDue(timeText) {
 async function say(text) {
   // Never let TTS/audio failures crash the whole loop.
   try {
+    // Best-effort: show what we're about to say on the display.
+    void displayUpdate({ status: 'speaking', line2: String(text || '').slice(0, 160) });
     const { audio, contentType } = await ttsToAudio({
       baseUrl,
       apiKeyEnv,
@@ -209,6 +212,7 @@ async function notifyAndMaybeAck({ id, text, kind }) {
     ? `Reminder: ${text}. Did you do it?`
     : `Did you do it yet? ${text}`;
 
+  void displayUpdate({ status: 'speaking', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
   await say(prompt);
 
   // After speaking, listen briefly for a yes/done response.
@@ -434,6 +438,7 @@ async function oneTurn({ abortSignal = null } = {}) {
     responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
   });
   console.log('Heard:', text);
+  void displayUpdate({ status: 'transcribing', line1: 'You', line2: String(text || '').slice(0, 160) });
 
   // CHAT MODE: general voice assistant + reminder control.
   // In chat mode, route with the LLM (natural language) and execute local reminder actions.
@@ -576,6 +581,7 @@ async function oneTurn({ abortSignal = null } = {}) {
         runtime.state.collected = null;
         const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec });
         if (r?.json?.ok) {
+          void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
           await say(`Perfect — I’ll remind you at ${timeText}.`);
         } else {
           await say('I had trouble saving that reminder. Check the logs.');
@@ -661,6 +667,7 @@ async function oneTurn({ abortSignal = null } = {}) {
 
     const messages = [{ role: 'system', content: systemPrompt }, ...runtime.state.chat.messages];
 
+    void displayUpdate({ status: 'thinking', line1: 'PocketAgent', line2: 'Thinking…' });
     const reply = await openaiChat({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, messages });
     const assistantText = (reply || '').trim();
 
@@ -728,6 +735,7 @@ async function oneTurn({ abortSignal = null } = {}) {
     const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec });
     runtime.state.collected = null;
     if (r?.json?.ok) {
+      void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
       await say(`Perfect — I’ll remind you at ${timeText}.`);
     } else {
       await say('I had trouble saving that reminder. Check the logs.');

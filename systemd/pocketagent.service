@@ -1,6 +1,7 @@
 [Unit]
 Description=PocketAgent (voice reminder assistant)
-After=network-online.target sound.target
+After=network-online.target sound.target pocketagent-display.service
+Requires=pocketagent-display.service
 Wants=network-online.target
 
 [Service]

@@ -15,7 +15,8 @@ apt-get install -y --no-install-recommends \
   ca-certificates \
   alsa-utils \
   gpiod \
-  libgpiod2
+  libgpiod2 \
+  python3
 
 # Node.js: install Node 20+ via NodeSource if missing.
 if ! command -v node >/dev/null 2>&1; then
@@ -100,6 +101,14 @@ POCKETAGENT_NOTIFY_PORT=3781
 # If you change host/port, also set:
 # POCKETAGENT_NOTIFY_URL=http://127.0.0.1:3781/notify
 
+# Display sidecar (Whisplay LCD)
+POCKETAGENT_DISPLAY_HOST=127.0.0.1
+POCKETAGENT_DISPLAY_PORT=3782
+# Modes: auto|whisplay|stdout|off
+POCKETAGENT_DISPLAY_MODE=auto
+# If you install PiSugar's driver somewhere else, point it here:
+# WHISPLAY_DRIVER_PATH=/opt/Whisplay/Driver
+
 # Optional hands-free chat (can be flaky on some ALSA stacks):
 # POCKETAGENT_CHAT_AUTO_LISTEN=true
 # POCKETAGENT_CHAT_AUTO_LISTEN_MAX_TURNS=5
@@ -116,15 +125,17 @@ chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
 # systemd: install services with correct user/group
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent.service > /etc/systemd/system/pocketagent.service
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-reminders.service > /etc/systemd/system/pocketagent-reminders.service
+sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-display.service > /etc/systemd/system/pocketagent-display.service
 systemctl daemon-reload
 systemctl enable pocketagent
 systemctl enable pocketagent-reminders
+systemctl enable pocketagent-display
 
 echo "\nInstall complete. Next:"
 echo "1) Create /etc/default/pocketagent with OPENAI_API_KEY=..."
 echo "2) (WM8960/ULTRA++) Add: POCKETAGENT_RECORDING_DEVICE=plughw:1,0 and POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0"
-echo "3) sudo systemctl restart pocketagent-reminders pocketagent"
-echo "4) sudo journalctl -u pocketagent-reminders -u pocketagent -f"
+echo "3) sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent"
+echo "4) sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f"
 echo "\nIf you hear no sound but playback succeeds, run (on the Pi):"
 echo "  amixer -c 1 sset 'Left Output Mixer PCM' on"
 echo "  amixer -c 1 sset 'Right Output Mixer PCM' on"
