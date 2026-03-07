@@ -7,7 +7,8 @@ set -euo pipefail
 APP_DIR="/opt/pocketagent"
 # Prefer the user who invoked sudo (common on Pi OS Lite), otherwise fall back.
 USER_NAME="${SUDO_USER:-pi}"
-REPO_URL="${POCKETAGENT_REPO_URL:-https://github.com/openclaw068/PocketAgent.git}"
+REPO_URL="${POCKETAGENT_REPO_URL:-https://github.com/openclaw068/PocketAgent-Whisplay.git}"
+WHISPLAY_DRIVER_DIR="/opt/Whisplay"
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -17,7 +18,8 @@ apt-get install -y --no-install-recommends \
   gpiod \
   libgpiod2 \
   python3 \
-  python3-pil
+  python3-pil \
+  python3-spidev
 
 # Node.js: install Node 20+ via NodeSource if missing.
 if ! command -v node >/dev/null 2>&1; then
@@ -44,6 +46,19 @@ cd "$APP_DIR"
 npm ci || npm install
 
 mkdir -p "$APP_DIR/data"
+
+# ---- Whisplay driver install (audio + LCD + button + RGB) ----
+# We install this separately from PocketAgent so you can update either independently.
+if [ -d "$WHISPLAY_DRIVER_DIR/.git" ]; then
+  git -C "$WHISPLAY_DRIVER_DIR" pull --ff-only || true
+else
+  git clone --depth 1 https://github.com/PiSugar/Whisplay.git "$WHISPLAY_DRIVER_DIR"
+fi
+
+# Install/enable WM8960 + SPI/I2C/I2S overlays (script requires reboot afterwards)
+if [ -f "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" ]; then
+  bash "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" || true
+fi
 
 # Sanity checks: required CLI tools
 for bin in node npm arecord aplay alsamixer gpiomon; do
@@ -109,8 +124,7 @@ POCKETAGENT_DISPLAY_HOST=127.0.0.1
 POCKETAGENT_DISPLAY_PORT=3782
 # Modes: auto|whisplay|stdout|off
 POCKETAGENT_DISPLAY_MODE=auto
-# If you install PiSugar's driver somewhere else, point it here:
-# WHISPLAY_DRIVER_PATH=/opt/Whisplay/Driver
+WHISPLAY_DRIVER_PATH=/opt/Whisplay/Driver
 
 # Optional hands-free chat (can be flaky on some ALSA stacks):
 # POCKETAGENT_CHAT_AUTO_LISTEN=true
@@ -135,12 +149,8 @@ systemctl enable pocketagent-reminders
 systemctl enable pocketagent-display
 
 echo "\nInstall complete. Next:"
-echo "1) Create /etc/default/pocketagent with OPENAI_API_KEY=..."
-echo "2) (WM8960/ULTRA++) Add: POCKETAGENT_RECORDING_DEVICE=plughw:1,0 and POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0"
-echo "3) sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent"
-echo "4) sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f"
-echo "\nIf you hear no sound but playback succeeds, run (on the Pi):"
-echo "  amixer -c 1 sset 'Left Output Mixer PCM' on"
-echo "  amixer -c 1 sset 'Right Output Mixer PCM' on"
-echo "  amixer -c 1 sset Speaker 127"
-echo "  sudo alsactl store"
+echo "1) Edit /etc/default/pocketagent and set OPENAI_API_KEY=..."
+echo "2) Reboot (Whisplay driver install requires it): sudo reboot"
+echo "After reboot:"
+echo "  sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent"
+echo "  sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f"

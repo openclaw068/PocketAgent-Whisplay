@@ -19,7 +19,11 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # Pillow is installed by install_pi.sh (python3-pil)
-from PIL import Image, ImageDraw, ImageFont
+# PIL is optional at import time so the service can still start in stdout mode.
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except Exception:  # pragma: no cover
+    Image = ImageDraw = ImageFont = None  # type: ignore
 
 HOST = os.environ.get("POCKETAGENT_DISPLAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("POCKETAGENT_DISPLAY_PORT", "3782"))
@@ -62,6 +66,8 @@ class DisplayBackend:
 
 
 def _load_font(size: int, bold: bool = False):
+    if ImageFont is None:
+        return None
     # DejaVu is usually present on Pi OS. Fall back to PIL default.
     paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -72,7 +78,10 @@ def _load_font(size: int, bold: bool = False):
             return ImageFont.truetype(p, size)
         except Exception:
             continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
 
 
 _FONT_STATUS = _load_font(14, bold=True)
@@ -122,8 +131,14 @@ def _bg_color_for(status: str):
     }.get(status, ((170, 205, 255), (200, 225, 255), (175, 200, 255)))
 
 
-def render_frame(s: dict, t: float) -> Image.Image:
-    """Render a single 240x280 frame as a PIL RGB image."""
+def render_frame(s: dict, t: float):
+    """Render a single 240x280 frame as a PIL RGB image.
+
+    Returns a PIL Image, or raises if PIL isn't available.
+    """
+    if Image is None or ImageDraw is None:
+        raise RuntimeError("PIL not installed (install python3-pil)")
+
     status = (s.get("status") or "idle").lower()
 
     img = Image.new("RGB", (W, H), (0, 0, 0))
@@ -149,8 +164,9 @@ def render_frame(s: dict, t: float) -> Image.Image:
     label = (status or "idle").upper()
     pill = (60, 14, 180, 38)
     d.rounded_rectangle(pill, radius=12, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
-    tw = d.textlength(label, font=_FONT_STATUS)
-    d.text(((W - tw) // 2, 18), label, font=_FONT_STATUS, fill=(60, 80, 120))
+    if _FONT_STATUS is not None:
+        tw = d.textlength(label, font=_FONT_STATUS)
+        d.text(((W - tw) // 2, 18), label, font=_FONT_STATUS, fill=(60, 80, 120))
 
     # robot head bob
     bob = 2.0 * (0.5 - abs(((t / 2.6) % 1.0) - 0.5))  # triangle wave 0..1
@@ -237,16 +253,17 @@ def render_frame(s: dict, t: float) -> Image.Image:
     sub = (20, 235, 220, 270)
     d.rounded_rectangle(sub, radius=16, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
 
-    lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2)
-    y = 242
-    for ln in lines:
-        d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
-        y += 16
+    if _FONT_SUB is not None:
+        lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2)
+        y = 242
+        for ln in lines:
+            d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
+            y += 16
 
     return img
 
 
-def rgb888_to_rgb565_bytes(img: Image.Image) -> bytes:
+def rgb888_to_rgb565_bytes(img) -> bytes:
     """Convert PIL RGB image to RGB565 big-endian byte stream (as used by PiSugar examples)."""
     img = img.convert("RGB")
     px = img.load()
