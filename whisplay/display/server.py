@@ -352,18 +352,19 @@ def render_frame(s: dict, t: float):
     if not subtitle and not subtitle_scrolling:
         subtitle = "ready" if status == "idle" else ""
 
-    sub = (20, 235, 220, 270)
+    # Subtitle bubble (leave a little extra vertical room so descenders (g/j/p/q/y) don't clip)
+    sub = (20, 232, 220, 276)
     d.rounded_rectangle(sub, radius=16, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
 
     if _FONT_SUB is not None:
         if subtitle_scrolling and scroll_lines:
-            y0 = 240
+            y0 = 238
             line_h = 16
             for i, ln in enumerate(scroll_lines):
                 d.text((30, y0 + i * line_h), ln, font=_FONT_SUB, fill=(60, 80, 120))
         else:
             lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2, ellipsize=True)
-            y = 242
+            y = 238
             for ln in lines:
                 d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
                 y += 16
