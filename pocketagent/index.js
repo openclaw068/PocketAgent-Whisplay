@@ -241,16 +241,21 @@ async function notifyAndMaybeAck({ id, text, kind }) {
   await say(prompt);
 
   // After speaking, listen briefly for a yes/done response.
-  // On some ALSA setups, the capture device can stay busy for a moment after playback.
-  // We'll retry a couple times before giving up.
+  // IMPORTANT: while we are ack-listening, ignore PTT presses to prevent two concurrent
+  // arecord processes (the user's PTT and the ack-listen) from fighting.
   let heard = '';
   const tries = Number(process.env.POCKETAGENT_ACK_LISTEN_TRIES ?? 3);
   const retryDelayMs = Number(process.env.POCKETAGENT_ACK_LISTEN_RETRY_DELAY_MS ?? 350);
 
-  for (let i = 0; i < tries; i++) {
-    heard = await listenForAck({ secondsMax: 5 });
-    if (heard) break;
-    if (i < tries - 1) await new Promise(r => setTimeout(r, retryDelayMs));
+  ackListening = true;
+  try {
+    for (let i = 0; i < tries; i++) {
+      heard = await listenForAck({ secondsMax: 5 });
+      if (heard) break;
+      if (i < tries - 1) await new Promise(r => setTimeout(r, retryDelayMs));
+    }
+  } finally {
+    ackListening = false;
   }
 
   if (isAck(heard)) {
@@ -273,6 +278,11 @@ const NOTIFY_PORT = Number(process.env.POCKETAGENT_NOTIFY_PORT || 3781);
 
 let busy = false;
 const notifyQueue = [];
+
+// When we're doing an automatic ack-listen (after a reminder fires), we temporarily
+// ignore push-to-talk presses to avoid two concurrent arecord processes fighting
+// over the capture device.
+let ackListening = false;
 
 function remindersReqOptions(pathname, method, bodyBuf = null) {
   const headers = bodyBuf
@@ -1348,6 +1358,10 @@ if (PTT_MODE === 'stdin') {
 const watcher = (PTT_MODE === 'whisplay') ? startWhisplayButtonWatcher() : startButtonWatcher();
   watcher
     .onPress(() => {
+      if (ackListening) {
+        console.log('[PocketAgent] ignoring PTT press during ack-listen');
+        return;
+      }
       if (inTurn) return;
       inTurn = true;
       pressAtMs = Date.now();
