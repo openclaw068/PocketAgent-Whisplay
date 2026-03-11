@@ -34,20 +34,25 @@ HTML = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>PocketAgent Wi‑Fi Setup</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px;max-width:560px}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px;max-width:760px}
     h1{font-size:22px;margin:0 0 12px}
-    .card{border:1px solid #ddd;border-radius:12px;padding:16px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin-bottom:14px}
     label{display:block;font-size:14px;margin:10px 0 6px}
     input{width:100%;font-size:16px;padding:10px;border:1px solid #ccc;border-radius:10px}
-    button{margin-top:14px;padding:10px 14px;border-radius:10px;border:0;background:#111;color:#fff;font-size:16px}
+    button{margin-top:14px;padding:10px 14px;border-radius:10px;border:0;background:#111;color:#fff;font-size:16px;cursor:pointer}
+    button.secondary{background:#444}
     .row{display:flex;gap:10px}
     .row > *{flex:1}
     .muted{color:#666;font-size:13px;margin-top:10px;line-height:1.35}
     pre{background:#f6f6f6;padding:10px;border-radius:10px;overflow:auto}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px;border-bottom:1px solid #eee;font-size:14px;text-align:left}
+    .pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#f0f0f0;font-size:12px}
   </style>
 </head>
 <body>
   <h1>PocketAgent Wi‑Fi Setup</h1>
+
   <div class=\"card\">
     <div class=\"row\">
       <div>
@@ -63,14 +68,55 @@ HTML = """<!doctype html>
     <input id=\"pass\" type=\"password\" placeholder=\"Wi‑Fi password\" />
 
     <button onclick=\"save()\">Save network</button>
-    <div class=\"muted\">
-      This saves the network to NetworkManager. It does not force switching immediately.
-    </div>
+    <div class=\"muted\">Saves the network to NetworkManager. You can optionally connect immediately from the list below.</div>
 
     <div id=\"out\" style=\"margin-top:12px\"></div>
   </div>
 
+  <div class=\"card\">
+    <div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px\">
+      <strong>Saved Wi‑Fi networks</strong>
+      <button class=\"secondary\" onclick=\"refresh()\" style=\"margin-top:0\">Refresh</button>
+    </div>
+    <div class=\"muted\">Tap “Connect now” to switch networks. If you’re using the setup AP fallback, your phone may disconnect when the Pi switches.</div>
+    <div id=\"list\" style=\"margin-top:10px\">Loading…</div>
+  </div>
+
   <script>
+    async function refresh(){
+      const list = document.getElementById('list');
+      list.textContent = 'Loading…';
+      const res = await fetch('/api/list');
+      const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
+      if (!j.ok){
+        list.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
+        return;
+      }
+      const rows = j.networks || [];
+      if (!rows.length){
+        list.textContent = 'No saved Wi‑Fi networks found.';
+        return;
+      }
+      let html = '<table><thead><tr><th>Name</th><th>Priority</th><th>Status</th><th></th></tr></thead><tbody>';
+      for (const n of rows){
+        const status = n.active ? '<span class="pill">active</span>' : '';
+        const pr = (n.priority==null?'':String(n.priority));
+        html += `<tr><td>${escapeHtml(n.name)}</td><td>${pr}</td><td>${status}</td>` +
+                `<td><button style="margin-top:0" onclick="connectNow('${escapeJs(n.name)}')">Connect now</button></td></tr>`;
+      }
+      html += '</tbody></table>';
+      list.innerHTML = html;
+    }
+
+    async function connectNow(name){
+      const out = document.getElementById('out');
+      out.innerHTML = 'Connecting…';
+      const res = await fetch('/api/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name})});
+      const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
+      out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
+      setTimeout(refresh, 1000);
+    }
+
     async function save(){
       const ssid = document.getElementById('ssid').value.trim();
       const pass = document.getElementById('pass').value;
@@ -80,7 +126,17 @@ HTML = """<!doctype html>
       const res = await fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ssid, pass, priority: prio})});
       const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
       out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
+      setTimeout(refresh, 500);
     }
+
+    function escapeHtml(s){
+      return String(s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+    function escapeJs(s){
+      return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    }
+
+    refresh();
   </script>
 </body>
 </html>"""
@@ -119,6 +175,48 @@ def save_connection(ssid: str, password: str, priority: int):
         raise RuntimeError(out)
 
 
+def list_connections():
+    # returns list of {name, priority, active}
+    code, out = run(["nmcli", "-t", "-f", "NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY", "connection", "show"])
+    if code != 0:
+        raise RuntimeError(out)
+
+    active_name = None
+    # Active connection (best-effort)
+    code2, out2 = run(["nmcli", "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"])
+    if code2 == 0:
+        for ln in out2.splitlines():
+            parts = ln.split(":")
+            if len(parts) >= 2 and parts[1] == IFACE:
+                active_name = parts[0]
+                break
+
+    nets = []
+    for ln in out.splitlines():
+        parts = ln.split(":")
+        if len(parts) < 4:
+            continue
+        name, typ, _auto, prio = parts[0], parts[1], parts[2], parts[3]
+        if typ != "802-11-wireless":
+            continue
+        try:
+            p = int(prio) if prio else None
+        except Exception:
+            p = None
+        nets.append({"name": name, "priority": p, "active": (name == active_name)})
+
+    # Sort by priority desc, active first
+    nets.sort(key=lambda x: ((0 if x["active"] else 1), -(x["priority"] or 0), x["name"]))
+    return nets
+
+
+def connect_now(name: str):
+    # Brings up the connection on the target iface.
+    code, out = run(["nmcli", "connection", "up", name, "ifname", IFACE])
+    if code != 0:
+        raise RuntimeError(out)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, body: bytes, ct: str = "text/html; charset=utf-8"):
         self.send_response(code)
@@ -132,32 +230,50 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, HTML.encode("utf-8"))
         if self.path == "/health":
             return self._send(200, b"{\"ok\":true}", "application/json")
+        if self.path == "/api/list":
+            try:
+                nets = list_connections()
+                return self._send(200, json.dumps({"ok": True, "networks": nets}).encode("utf-8"), "application/json")
+            except Exception as e:
+                return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
+
         return self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
-        if self.path != "/api/save":
-            return self._send(404, b"{\"ok\":false,\"error\":\"not found\"}", "application/json")
         n = int(self.headers.get("content-length") or "0")
         raw = self.rfile.read(n) if n else b"{}"
         try:
             body = json.loads(raw.decode("utf-8"))
         except Exception:
-            return self._send(400, b"{\"ok\":false,\"error\":\"bad json\"}", "application/json")
+            body = {}
 
-        ssid = str(body.get("ssid") or "").strip()
-        password = str(body.get("pass") or "")
-        priority = int(body.get("priority") or 50)
+        if self.path == "/api/save":
+            ssid = str(body.get("ssid") or "").strip()
+            password = str(body.get("pass") or "")
+            priority = int(body.get("priority") or 50)
 
-        if not ssid:
-            return self._send(400, b"{\"ok\":false,\"error\":\"missing ssid\"}", "application/json")
-        if not password:
-            return self._send(400, b"{\"ok\":false,\"error\":\"missing password\"}", "application/json")
+            if not ssid:
+                return self._send(400, b"{\"ok\":false,\"error\":\"missing ssid\"}", "application/json")
+            if not password:
+                return self._send(400, b"{\"ok\":false,\"error\":\"missing password\"}", "application/json")
 
-        try:
-            save_connection(ssid, password, priority)
-            return self._send(200, json.dumps({"ok": True, "saved": ssid, "priority": priority}).encode("utf-8"), "application/json")
-        except Exception as e:
-            return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
+            try:
+                save_connection(ssid, password, priority)
+                return self._send(200, json.dumps({"ok": True, "saved": ssid, "priority": priority}).encode("utf-8"), "application/json")
+            except Exception as e:
+                return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
+
+        if self.path == "/api/connect":
+            name = str(body.get("name") or "").strip()
+            if not name:
+                return self._send(400, b"{\"ok\":false,\"error\":\"missing name\"}", "application/json")
+            try:
+                connect_now(name)
+                return self._send(200, json.dumps({"ok": True, "connected": name}).encode("utf-8"), "application/json")
+            except Exception as e:
+                return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
+
+        return self._send(404, b"{\"ok\":false,\"error\":\"not found\"}", "application/json")
 
 
 def main():
