@@ -92,6 +92,48 @@ state = {
 
 # Animation settings
 W, H = 240, 280
+
+# Optional background image (e.g. hyperion.jpg)
+BG_IMAGE_PATH = os.environ.get(
+    "POCKETAGENT_DISPLAY_BG_IMAGE",
+    os.path.join(os.path.dirname(__file__), "assets", "hyperion.jpg"),
+)
+
+_BG_CACHE = {"path": None, "img": None}
+
+def _load_bg_image():
+    if Image is None:
+        return None
+    p = BG_IMAGE_PATH
+    if not p or not os.path.exists(p):
+        return None
+    if _BG_CACHE.get("path") == p and _BG_CACHE.get("img") is not None:
+        return _BG_CACHE["img"]
+    try:
+        im = Image.open(p).convert("RGB")
+        _BG_CACHE["path"] = p
+        _BG_CACHE["img"] = im
+        return im
+    except Exception:
+        _BG_CACHE["path"] = p
+        _BG_CACHE["img"] = None
+        return None
+
+
+def _fit_cover(img, w: int, h: int):
+    """Resize/crop to cover target size (like CSS background-size: cover)."""
+    if img is None:
+        return None
+    iw, ih = img.size
+    if iw <= 0 or ih <= 0:
+        return None
+    scale = max(w / iw, h / ih)
+    nw, nh = int(iw * scale + 0.5), int(ih * scale + 0.5)
+    im2 = img.resize((nw, nh))
+    x0 = max(0, (nw - w) // 2)
+    y0 = max(0, (nh - h) // 2)
+    return im2.crop((x0, y0, x0 + w, y0 + h))
+
 ACTIVE_FPS = float(os.environ.get("POCKETAGENT_DISPLAY_FPS_ACTIVE", "10"))
 IDLE_FPS = float(os.environ.get("POCKETAGENT_DISPLAY_FPS_IDLE", "1"))
 SUBTITLE_MAX_CHARS = int(os.environ.get("POCKETAGENT_DISPLAY_SUBTITLE_MAX_CHARS", "80"))
@@ -231,10 +273,22 @@ def render_frame(s: dict, t: float):
     status = (s.get("status") or "idle").lower()
 
     img = Image.new("RGB", (W, H), (0, 0, 0))
-    d = ImageDraw.Draw(img)
 
-    # solid black background
-    d.rectangle((0, 0, W, H), fill=(0, 0, 0))
+    # Background
+    bg = _fit_cover(_load_bg_image(), W, H)
+    if bg is not None:
+        img.paste(bg, (0, 0))
+        # Add a subtle dark overlay so UI/face remain readable.
+        overlay_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_BG_DARKEN", "70"))  # 0-255
+        if overlay_alpha > 0:
+            ov = Image.new("RGBA", (W, H), (0, 0, 0, max(0, min(255, overlay_alpha))))
+            img = Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+    else:
+        # fallback: solid black
+        d = ImageDraw.Draw(img)
+        d.rectangle((0, 0, W, H), fill=(0, 0, 0))
+
+    d = ImageDraw.Draw(img)
     # status pill
     label = (status or "idle").upper()
     pill = (60, 14, 180, 38)
