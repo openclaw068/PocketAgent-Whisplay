@@ -357,7 +357,7 @@ def render_frame(s: dict, t: float):
 
     if _FONT_SUB is not None:
         if subtitle_scrolling and scroll_lines:
-            y0 = 242
+            y0 = 240
             line_h = 16
             for i, ln in enumerate(scroll_lines):
                 d.text((30, y0 + i * line_h), ln, font=_FONT_SUB, fill=(60, 80, 120))
