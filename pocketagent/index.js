@@ -241,7 +241,18 @@ async function notifyAndMaybeAck({ id, text, kind }) {
   await say(prompt);
 
   // After speaking, listen briefly for a yes/done response.
-  const heard = await listenForAck({ secondsMax: 5 });
+  // On some ALSA setups, the capture device can stay busy for a moment after playback.
+  // We'll retry a couple times before giving up.
+  let heard = '';
+  const tries = Number(process.env.POCKETAGENT_ACK_LISTEN_TRIES ?? 3);
+  const retryDelayMs = Number(process.env.POCKETAGENT_ACK_LISTEN_RETRY_DELAY_MS ?? 350);
+
+  for (let i = 0; i < tries; i++) {
+    heard = await listenForAck({ secondsMax: 5 });
+    if (heard) break;
+    if (i < tries - 1) await new Promise(r => setTimeout(r, retryDelayMs));
+  }
+
   if (isAck(heard)) {
     await remindersPost('/reminders/ack', { id });
     await say("Awesome — I’ll take it off the list.");
