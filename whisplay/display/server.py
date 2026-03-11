@@ -673,8 +673,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         global _state_dirty
-
         global _last_update_at
+
+        # Do not let background-only updates (e.g., wifi polling) prevent idle sleep.
+        # We treat an update as "activity" only if it changes status or visible text lines.
+        activity_keys = {"status", "line1", "line2", "line3", "line4", "next"}
+        is_activity = any(k in activity_keys for k in (body or {}).keys())
 
         with _state_lock:
             # Shallow merge
@@ -683,7 +687,8 @@ class Handler(BaseHTTPRequestHandler):
                     state[k] = v
             state["updatedAt"] = now_iso()
             _state_dirty = True
-            _last_update_at = time.time()
+            if is_activity:
+                _last_update_at = time.time()
 
         self._json(200, {"ok": True})
 
