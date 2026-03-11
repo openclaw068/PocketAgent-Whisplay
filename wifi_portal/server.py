@@ -97,15 +97,48 @@ HTML = """<!doctype html>
         list.textContent = 'No saved Wi‑Fi networks found.';
         return;
       }
-      let html = '<table><thead><tr><th>Name</th><th>Priority</th><th>Status</th><th></th></tr></thead><tbody>';
+      // Build DOM to avoid fragile inline onclick quoting issues.
+      const table = document.createElement('table');
+      table.innerHTML = '<thead><tr><th>Name</th><th>Priority</th><th>Status</th><th></th></tr></thead><tbody></tbody>';
+      const tbody = table.querySelector('tbody');
+
       for (const n of rows){
-        const status = n.active ? '<span class="pill">active</span>' : '';
-        const pr = (n.priority==null?'':String(n.priority));
-        html += `<tr><td>${escapeHtml(n.name)}</td><td>${pr}</td><td>${status}</td>` +
-                `<td><button style="margin-top:0" onclick="connectNow('${escapeJs(n.name)}')">Connect now</button></td></tr>`;
+        const tr = document.createElement('tr');
+
+        const tdName = document.createElement('td');
+        tdName.textContent = n.name || '';
+
+        const tdPr = document.createElement('td');
+        tdPr.textContent = (n.priority==null?'':String(n.priority));
+
+        const tdSt = document.createElement('td');
+        if (n.active){
+          const sp = document.createElement('span');
+          sp.className = 'pill';
+          sp.textContent = 'active';
+          tdSt.appendChild(sp);
+        }
+
+        const tdBtn = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.style.marginTop = '0';
+        btn.textContent = 'Connect now';
+        btn.dataset.name = n.name || '';
+        btn.addEventListener('click', async (ev) => {
+          const name = ev.currentTarget.dataset.name;
+          await connectNow(name);
+        });
+        tdBtn.appendChild(btn);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdPr);
+        tr.appendChild(tdSt);
+        tr.appendChild(tdBtn);
+        tbody.appendChild(tr);
       }
-      html += '</tbody></table>';
-      list.innerHTML = html;
+
+      list.innerHTML = '';
+      list.appendChild(table);
     }
 
     async function connectNow(name){
@@ -127,13 +160,6 @@ HTML = """<!doctype html>
       const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
       out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
       setTimeout(refresh, 500);
-    }
-
-    function escapeHtml(s){
-      return String(s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-    }
-    function escapeJs(s){
-      return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     }
 
     refresh();
