@@ -283,38 +283,58 @@ def render_frame(s: dict, t: float):
     subtitle_full = (s.get("line2") or s.get("next") or "").strip()
 
     # While speaking, scroll long assistant text so the user can read the full message.
-    # We do a simple "window" scroll in character space, then wrap into 2 lines.
-    # (The bubble is small; this keeps the code dependency-light.)
+    # Important: the existing word-wrap helper ellipsizes long "words". A scrolling marquee
+    # often contains partial words with no spaces, so we render scrolling text as two fixed
+    # character lines instead of word-wrapping.
+    subtitle = ""
+    subtitle_scrolling = False
+    scroll_line1 = ""
+    scroll_line2 = ""
+
     if subtitle_full:
         subtitle = subtitle_full
+
         if status == "speaking" and len(subtitle_full) > SUBTITLE_MAX_CHARS:
-            # Scroll speed: ~6 chars/sec. Add a short pause at the start.
-            scroll_start_delay = 0.8
-            cps = float(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_CPS", "6"))
+            subtitle_scrolling = True
+
+            scroll_start_delay = 0.6
+            cps = float(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_CPS", "8"))
             t2 = max(0.0, t - scroll_start_delay)
             offset = int(t2 * cps)
 
-            # Wrap-around marquee with a spacer so it doesn't look like words smash together.
             spacer = "   •   "
             loop = subtitle_full + spacer
-            if len(loop) < 4:
-                subtitle = subtitle_full
-            else:
+            if len(loop) >= 4:
                 offset = offset % len(loop)
-                window = (loop + loop)[offset : offset + SUBTITLE_MAX_CHARS]
-                subtitle = window
-    else:
+
+                # Show a 2-line window (chars), to ensure visible motion.
+                window_len = int(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_WINDOW_CHARS", str(SUBTITLE_MAX_CHARS)))
+                window_len = max(20, min(140, window_len))
+                window = (loop + loop)[offset : offset + window_len]
+
+                half = window_len // 2
+                scroll_line1 = window[:half].ljust(half)
+                scroll_line2 = window[half:window_len].ljust(window_len - half)
+            else:
+                subtitle_scrolling = False
+
+    if not subtitle and not subtitle_scrolling:
         subtitle = "ready" if status == "idle" else ""
 
     sub = (20, 235, 220, 270)
     d.rounded_rectangle(sub, radius=16, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
 
     if _FONT_SUB is not None:
-        lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2)
-        y = 242
-        for ln in lines:
-            d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
-            y += 16
+        if subtitle_scrolling and (scroll_line1 or scroll_line2):
+            # Render two fixed lines (no wrapping/ellipsize), so scrolling always moves.
+            d.text((30, 242), scroll_line1, font=_FONT_SUB, fill=(60, 80, 120))
+            d.text((30, 258), scroll_line2, font=_FONT_SUB, fill=(60, 80, 120))
+        else:
+            lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2)
+            y = 242
+            for ln in lines:
+                d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
+                y += 16
 
     return img
 
