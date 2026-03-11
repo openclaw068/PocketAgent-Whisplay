@@ -96,9 +96,20 @@ function normalizeTimeText(s) {
 
 function parseDue(timeText) {
   const now = new Date();
-  const t = normalizeTimeText(timeText);
+  const t = normalizeTimeText(timeText).toLowerCase();
 
-  const m = t.match(/^(tomorrow\s+)?(at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  // Relative times: "in 5 minutes", "in one minute", "in an hour"
+  let m = t.match(/^in\s+(a|an|one|\d+)\s+(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs)\b/);
+  if (m) {
+    const nRaw = m[1];
+    const unit = m[2];
+    const n = (nRaw === 'a' || nRaw === 'an' || nRaw === 'one') ? 1 : Number(nRaw);
+    const mult = unit.startsWith('hour') || unit.startsWith('hr') ? 3600_000 : unit.startsWith('sec') ? 1000 : 60_000;
+    return new Date(Date.now() + n * mult).toISOString();
+  }
+
+  // Absolute-ish times: "7am", "tomorrow 7am"
+  m = t.match(/^(tomorrow\s+)?(at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
   if (!m) return new Date(Date.now() + 60_000).toISOString();
 
   const isTomorrow = !!m[1];

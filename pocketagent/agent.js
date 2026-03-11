@@ -205,23 +205,29 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
 
   // Mid-flow: follow-up policy
   if (state.pending?.kind === 'ask_followup') {
-    const spec = await parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText: t });
-    // conversational confirmation for critical values
-    const wantsDefault = spec?.kind === 'use_default';
-    if (!wantsDefault) {
-      const parts = [];
-      if (spec.everyMin === null) parts.push('no follow-ups');
-      else if (spec.everyMin != null) parts.push(`every ${spec.everyMin} minutes`);
-      if (spec.maxCount != null) parts.push(`max ${spec.maxCount} times`);
-      if (spec.quietHours) parts.push(`quiet hours ${spec.quietHours.start}:00 to ${spec.quietHours.end}:00`);
-      const summary = parts.length ? parts.join(', ') : 'custom follow-ups';
+    // If the user gives a time here, they probably meant to answer the time question.
+    if (looksLikeTime(t)) {
       return {
-        intent: 'confirm_followup',
-        say: `Just to confirm — for this reminder, ${summary}. Sound right?`,
+        intent: 'set_time',
+        timeText: t,
+        say: `Okay — ${t}. If I remind you and you don’t respond, how should I handle follow-ups?`,
+        state: { ...state, pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: t } }
+      };
+    }
+
+    const spec = await parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText: t });
+
+    // If the user asked for defaults, we can save immediately.
+    const wantsDefault = spec?.kind === 'use_default';
+    if (wantsDefault) {
+      return {
+        intent: 'set_followup',
+        followupSpec: spec,
+        say: `Got it — I’ll use your default follow-ups.`,
         state: {
           ...state,
-          pending: {
-            kind: 'confirm_followup',
+          pending: null,
+          collected: {
             reminderText: state.pending.reminderText,
             timeText: state.pending.timeText,
             followupSpec: spec
@@ -230,10 +236,12 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
       };
     }
 
+    // Natural-language follow-up like "every five minutes" should NOT force another yes/no confirmation.
+    // Confirmations are what is causing users to get stuck in the flow.
     return {
       intent: 'set_followup',
       followupSpec: spec,
-      say: `Got it — I’ll use your default follow-ups.`,
+      say: `Okay — I’ll follow up like that.`,
       state: {
         ...state,
         pending: null,
