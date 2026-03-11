@@ -590,6 +590,83 @@ async function oneTurn({ abortSignal = null } = {}) {
       }
     }
 
+    // Semantic memory routed intents (must run BEFORE reminder creation)
+    if (routed?.intent === 'remember_fact') {
+      try {
+        const fact = String(routed.factText || routed.reminderText || text || '').trim();
+        if (!fact) {
+          await say('What should I remember?');
+          return;
+        }
+        const vec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: fact });
+        semMemory.add({ text: fact, embedding: vec, meta: { source: 'voice', kind: 'fact' } });
+        await say('Got it — I’ll remember that.');
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] remember_fact failed:', e?.message ?? e);
+        await say('I had trouble saving that memory. Check the logs.');
+        return;
+      }
+    }
+
+    if (routed?.intent === 'query_memory') {
+      try {
+        const q = String(routed.memoryQuery || routed.queryText || text || '').trim();
+        if (!q) {
+          await say('What should I look up?');
+          return;
+        }
+        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        const hits = semMemory.search({ queryEmbedding: qvec, k: 3, minScore: 0.18 });
+
+        if (!hits.length) {
+          await say("I don't have anything saved for that yet.");
+          return;
+        }
+
+        const sys =
+          'You are PocketAgent. Answer the user using ONLY the provided memory snippets. ' +
+          'If the memory does not contain the answer, say you do not know. Keep it brief.';
+
+        const answer = await openaiChat({
+          baseUrl,
+          apiKeyEnv,
+          model: DEFAULTS.chatModel,
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: JSON.stringify({ query: q, memories: hits }, null, 2) }
+          ]
+        });
+
+        await say((answer || '').trim() || 'Okay.');
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] query_memory failed:', e?.message ?? e);
+        await say('I had trouble searching memory. Check the logs.');
+        return;
+      }
+    }
+
+    if (routed?.intent === 'forget_memory') {
+      try {
+        const q = String(routed.forgetQuery || text || '').trim();
+        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        const hits = semMemory.search({ queryEmbedding: qvec, k: 1, minScore: 0.18 });
+        const top = hits?.[0]?.item;
+        if (!top) {
+          await say("I couldn't find a memory to forget.");
+          return;
+        }
+        runtime.state.memory.pendingForget = top;
+        await say(`Do you want me to forget: ${top.text}?`);
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] forget_memory failed:', e?.message ?? e);
+        await say('I had trouble forgetting that. Check the logs.');
+        return;
+      }
+    }
+
     if (routed?.intent === 'create_reminder') {
       // Kick off the existing reminder creation flow.
       // If timeText was provided, we can skip ask_time and go straight to followup collection.

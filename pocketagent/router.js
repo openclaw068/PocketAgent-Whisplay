@@ -13,6 +13,12 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
       'update_followup_defaults',
       'update_reminder',
       'delete_reminder',
+
+      // semantic memory
+      'remember_fact',
+      'query_memory',
+      'forget_memory',
+
       'set_volume',
       'general_chat',
       'unknown'
@@ -44,16 +50,29 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
       followupEveryMin: 'number|null'
     },
 
+    // semantic memory fields
+    factText: 'string|null',
+    memoryQuery: 'string|null',
+    forgetQuery: 'string|null',
+
     // set_volume
     volumePercent: 'number|null'
   };
 
   const sys =
-    'You are PocketAgent. Your job is to route the user\'s utterance into one of a few intents for a local, offline reminders system. ' +
+    'You are PocketAgent. Your job is to route the user\'s utterance into intents for a local reminders system AND a simple semantic memory. ' +
     'Return ONLY valid JSON with no markdown. ' +
-    'Prefer reminders intents when the user is asking about reminders, scheduling, completing, canceling, or what\'s coming up. ' +
-    'If the user is just chatting (trivia, random questions), choose intent="general_chat". ' +
-    'IMPORTANT: If the user says anything like "remind me" / "set a reminder" / "remember to" then intent MUST be "create_reminder". ' +
+    'Prefer reminder intents when the user is explicitly scheduling/asking about timed reminders. ' +
+    'Prefer semantic memory when the user is asking you to remember a fact/location with no time. ' +
+
+    'SEMANTIC MEMORY RULES: ' +
+    'If user says things like "remember I put...", "remember that I put...", "remember I left...", "remember where I put...", "store this", "save this", "note that", intent MUST be "remember_fact" and put the fact in factText. ' +
+    'If user asks "where is/are ...", "where did I put ...", "what did I do with ...", "do you remember ...", intent MUST be "query_memory" and put the question in memoryQuery. ' +
+    'If user says "forget"/"delete that memory" intent MUST be "forget_memory" and put what to forget in forgetQuery. ' +
+
+    'REMINDERS RULES: ' +
+    'IMPORTANT: If the user says anything like "remind me" / "set a reminder" / "remind" / "don\'t let me forget" / "remember to" AND includes a time, then intent MUST be "create_reminder". ' +
+    'If the user says "remember" but does NOT provide a time and is phrasing it like a fact (e.g. "remember I put my balance board in the guest closet"), choose semantic memory (remember_fact), not create_reminder. ' +
     'IMPORTANT: If the user is answering a follow-up timing question with something like "every 5 minutes", "every five minutes", "every hour", etc., set intent="unknown" (do NOT change defaults). ' +
     'Only choose intent="update_followup_defaults" when the user clearly says they want to change DEFAULTS (e.g. "set my default follow-ups to every 5 minutes"). ' +
     'For updating reminders: if user says "change/update/edit" a reminder, choose intent="update_reminder". Use target="latest" when they say "latest" or if there is only one open reminder. Use target="by_text" when they describe it; put that description in targetText. Put changes in update (timeText, reminderText, followupEveryMin). ' +
@@ -63,7 +82,7 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     'For creating reminders, extract reminderText and timeText in the user\'s words. timeText can be a clock time ("7am") OR a relative time ("in 5 minutes", "in one minute"). ' +
     'If the user asks for a repeating reminder (e.g. "every other Tuesday", "weekends", "every day"), set recurrence.kind="rrule" and provide an RFC5545 RRULE string (no DTSTART) plus timezone (usually America/Chicago unless user says otherwise). ' +
     'If it is not repeating, set recurrence.kind="none". ' +
-    'If time is missing for creation, still choose create_reminder and leave timeText=null.';
+    'If time is missing for reminder creation, still choose create_reminder and leave timeText=null.';
 
   const user = {
     text,
