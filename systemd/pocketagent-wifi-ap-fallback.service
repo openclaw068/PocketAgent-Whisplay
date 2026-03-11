@@ -1,0 +1,14 @@
+[Unit]
+Description=PocketAgent Wi-Fi Setup AP Fallback (hostapd + dnsmasq + portal)
+After=NetworkManager.service network.target
+Wants=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/pocketagent
+ExecStart=/usr/local/bin/pocketagent-wifi-ap-fallback
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -299,6 +299,7 @@ def render_frame(s: dict, t: float):
     d = ImageDraw.Draw(ui)
     # wifi indicator (top-left)
     wifi = s.get("wifi") or {}
+    connected = bool(wifi.get("connected"))
     try:
         bars = int(wifi.get("bars") or 0)
     except Exception:
@@ -312,8 +313,12 @@ def render_frame(s: dict, t: float):
         h = 4 + i * 4
         x = x0 + i * (bar_w + gap)
         y = y0 + (16 - h)
-        col = (255, 255, 255, 240) if i < bars else (255, 255, 255, 90)
+        col = (255, 255, 255, 240) if (connected and i < bars) else (255, 255, 255, 90)
         d.rounded_rectangle((x, y, x + bar_w, y + h), radius=2, fill=col)
+
+    # If not connected, draw a slash through the bars
+    if not connected:
+        d.line((x0 - 2, y0 + 14, x0 + 4 * (bar_w + gap), y0 - 2), fill=(255, 255, 255, 200), width=3)
 
     # status pill
     label = (status or "idle").upper()

@@ -16,6 +16,7 @@ import { startWhisplayButtonWatcher } from './whisplay_button.js';
 import { bestReminderMatch } from './match.js';
 import { displayUpdate } from './display_client.js';
 import { SemanticMemory } from './semantic_memory.js';
+import { getWifiStatus } from './wifi_status.js';
 import { classifyMemoryUtterance } from './memory_nlu.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
@@ -421,6 +422,28 @@ function startNotifyServer() {
 }
 
 startNotifyServer();
+
+// Periodically publish Wi‑Fi signal bars to the display.
+(function startWifiIndicator() {
+  const enabled = (process.env.POCKETAGENT_WIFI_INDICATOR ?? 'true').toLowerCase() === 'true';
+  if (!enabled) return;
+
+  const iface = process.env.POCKETAGENT_WIFI_IFACE || 'wlan0';
+  const intervalMs = Number(process.env.POCKETAGENT_WIFI_POLL_MS ?? 15000);
+
+  const tick = async () => {
+    try {
+      const st = await getWifiStatus({ iface });
+      const wifi = st.connected
+        ? { connected: true, ssid: st.ssid, bars: st.bars, signalPct: st.signalPct }
+        : { connected: false, ssid: '', bars: 0, signalPct: 0 };
+      void displayUpdate({ wifi });
+    } catch {}
+  };
+
+  void tick();
+  setInterval(tick, Math.max(5000, intervalMs));
+})();
 
 async function maybeAnnounceStartupOncePerBoot() {
   if ((process.env.POCKETAGENT_STARTUP_ANNOUNCE ?? 'false').toLowerCase() !== 'true') return;
