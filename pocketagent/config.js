@@ -17,6 +17,9 @@ export const DEFAULTS = {
   ttsModel: process.env.POCKETAGENT_TTS_MODEL || 'gpt-4o-mini-tts',
   ttsVoice: process.env.POCKETAGENT_TTS_VOICE || 'alloy',
 
+  // Embeddings (semantic memory)
+  embeddingModel: process.env.POCKETAGENT_EMBEDDING_MODEL || 'text-embedding-3-small',
+
   // Behavior
   defaultsFile: process.env.POCKETAGENT_DEFAULTS_FILE || './data/defaults.json',
   remindersDbFile: process.env.POCKETAGENT_REMINDERS_DB || './data/reminders.json',

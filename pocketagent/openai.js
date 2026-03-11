@@ -90,6 +90,30 @@ export async function chat({ baseUrl, apiKeyEnv, model, messages }) {
   return json.choices?.[0]?.message?.content ?? '';
 }
 
+export async function embed({ baseUrl, apiKeyEnv, model, input }) {
+  const apiKey = getApiKey(apiKeyEnv);
+  const url = `${baseUrl.replace(/\/$/, '')}/embeddings`;
+
+  const res = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ model, input })
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Embeddings failed: ${res.status} ${res.statusText} ${t}`);
+  }
+
+  const json = await res.json();
+  const vec = json.data?.[0]?.embedding;
+  if (!Array.isArray(vec)) throw new Error('Embeddings response missing embedding vector');
+  return vec;
+}
+
 export async function ttsToAudio({ baseUrl, apiKeyEnv, model, voice, text, format = 'wav', speed = null }) {
   const apiKey = getApiKey(apiKeyEnv);
   const url = `${baseUrl.replace(/\/$/, '')}/audio/speech`;

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS } from './config.js';
 import { recordToWav, playWav, runHook } from './audio.js';
-import { whisperTranscribe, ttsToAudio, chat as openaiChat } from './openai.js';
+import { whisperTranscribe, ttsToAudio, chat as openaiChat, embed } from './openai.js';
 import http from 'node:http';
 
 import { handleUtterance } from './agent.js';
@@ -15,15 +15,20 @@ import { startButtonWatcher } from './gpio_button.js';
 import { startWhisplayButtonWatcher } from './whisplay_button.js';
 import { bestReminderMatch } from './match.js';
 import { displayUpdate } from './display_client.js';
+import { SemanticMemory } from './semantic_memory.js';
+import { classifyMemoryUtterance } from './memory_nlu.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const defaultsPath = process.env.POCKETAGENT_DEFAULTS_FILE || path.join(DATA_DIR, 'defaults.json');
 const remindersPath = process.env.POCKETAGENT_REMINDERS_DB || path.join(DATA_DIR, 'reminders.json');
+const memoryPath = process.env.POCKETAGENT_MEMORY_DB || path.join(DATA_DIR, 'memory.json');
 
 const baseUrl = DEFAULTS.openaiBaseUrl;
 const apiKeyEnv = DEFAULTS.openaiApiKeyEnv;
+
+const semMemory = new SemanticMemory({ dbFile: memoryPath });
 
 const runtime = {
   state: {
@@ -37,6 +42,11 @@ const runtime = {
         quietHours: { start: 23, end: 7 }
       }
     }),
+
+    // Semantic memory flow
+    memory: {
+      pendingForget: null
+    },
 
     // Chat mode conversation memory
     chat: {
@@ -856,6 +866,85 @@ async function oneTurn({ abortSignal = null } = {}) {
         await say(r1.say);
         return;
       }
+    }
+
+    // Semantic memory (facts like "remember I put my keys by the door" / queries like "where are my keys")
+    // Run this before general chat fallback so memory behaves like a "central place for remembering".
+    try {
+      const mem = await classifyMemoryUtterance({ baseUrl, apiKeyEnv, model: DEFAULTS.chatModel, text });
+
+      if (mem?.intent === 'remember_fact' && (mem.factText || text)) {
+        const fact = String(mem.factText || text).trim();
+        const vec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: fact });
+        semMemory.add({ text: fact, embedding: vec, meta: { source: 'voice', kind: 'fact' } });
+        await say('Got it — I’ll remember that.');
+        return;
+      }
+
+      if (mem?.intent === 'query_memory' && (mem.queryText || text)) {
+        const q = String(mem.queryText || text).trim();
+        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        const hits = semMemory.search({ queryEmbedding: qvec, k: 3, minScore: 0.18 });
+
+        if (!hits.length) {
+          await say("I don't have anything saved for that yet.");
+          return;
+        }
+
+        // Ask the LLM to answer using ONLY the returned memories.
+        const sys =
+          'You are PocketAgent. Answer the user using ONLY the provided memory snippets. ' +
+          'If the memory does not contain the answer, say you do not know. Keep it brief.';
+
+        const answer = await openaiChat({
+          baseUrl,
+          apiKeyEnv,
+          model: DEFAULTS.chatModel,
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: JSON.stringify({ query: q, memories: hits }, null, 2) }
+          ]
+        });
+
+        await say((answer || '').trim() || 'Okay.');
+        return;
+      }
+
+      if (mem?.intent === 'forget_memory' && (mem.forgetQuery || text)) {
+        const q = String(mem.forgetQuery || text).trim();
+        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        const hits = semMemory.search({ queryEmbedding: qvec, k: 1, minScore: 0.18 });
+        const top = hits?.[0]?.item;
+        if (!top) {
+          await say("I couldn't find a memory to forget.");
+          return;
+        }
+        runtime.state.memory.pendingForget = top;
+        await say(`Do you want me to forget: ${top.text}?`);
+        return;
+      }
+
+      // If we are confirming a pending forget
+      if (runtime.state.memory?.pendingForget) {
+        const t0 = String(text || '').toLowerCase();
+        if (/\b(yes|yep|yeah|confirm|do it|ok|okay)\b/.test(t0)) {
+          const target = runtime.state.memory.pendingForget;
+          runtime.state.memory.pendingForget = null;
+          semMemory.deleteById(target.id);
+          await say('Okay — forgotten.');
+          return;
+        }
+        if (/\b(no|nope|cancel|never mind|stop)\b/.test(t0)) {
+          runtime.state.memory.pendingForget = null;
+          await say('Okay — I will keep it.');
+          return;
+        }
+        await say('Just say yes to forget it, or no to cancel.');
+        return;
+      }
+    } catch (e) {
+      console.error('[PocketAgent] semantic memory handling failed:', e?.message ?? e);
+      // Fall through to general chat.
     }
 
     // Otherwise: fall back to general chat with conversation memory.
