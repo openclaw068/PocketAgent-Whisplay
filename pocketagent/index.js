@@ -162,6 +162,9 @@ async function say(text) {
   // Never let TTS/audio failures crash the whole loop.
   const spoken = String(text || '').trim();
   try {
+    // Reset pending-idle timer so we don't clear pending state while we're speaking.
+    try { touchTurn(); } catch {}
+
     // Show what we're about to say on the display.
     // IMPORTANT: don't truncate too aggressively — the Whisplay subtitle bubble can scroll.
     const displayText = spoken.length > 600 ? (spoken.slice(0, 600) + '…') : spoken;
