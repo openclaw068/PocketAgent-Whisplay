@@ -33,6 +33,11 @@ export const DEFAULTS = {
   alsaCard: process.env.POCKETAGENT_ALSA_CARD ?? null, // e.g. 0, 1
   alsaVolumeControl: process.env.POCKETAGENT_ALSA_VOLUME_CONTROL || 'Speaker',
 
+  // Optional: map a percent to a raw ALSA mixer integer range (e.g. Playback 200-255)
+  alsaVolumeRawControl: process.env.POCKETAGENT_ALSA_VOLUME_RAW_CONTROL || null, // e.g. "Playback"
+  alsaVolumeRawMin: Number(process.env.POCKETAGENT_ALSA_VOLUME_RAW_MIN ?? 200),
+  alsaVolumeRawMax: Number(process.env.POCKETAGENT_ALSA_VOLUME_RAW_MAX ?? 255),
+
   // If true, prefer offline TTS when available (Piper). On Pi Zero 2W, this may be too slow/limited.
   preferOfflineTts: (process.env.POCKETAGENT_PREFER_OFFLINE_TTS || '').toLowerCase() === 'true'
 };

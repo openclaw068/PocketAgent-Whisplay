@@ -24,6 +24,24 @@ export async function setVolumePercent({ card = null, control = 'Speaker', perce
   return p;
 }
 
+export async function setVolumePercentRaw({ card = null, control = 'Playback', percent, min = 200, max = 255 }) {
+  const p = Math.max(0, Math.min(100, Number(percent)));
+  const lo = Number(min);
+  const hi = Number(max);
+  const a = Math.min(lo, hi);
+  const b = Math.max(lo, hi);
+
+  // Linear map: 0% -> a, 100% -> b
+  const raw = Math.round(a + (p / 100) * (b - a));
+
+  const args = [];
+  if (card !== null && card !== undefined) args.push('-c', String(card));
+  args.push('sset', control, String(raw));
+
+  await run('amixer', args);
+  return { percent: p, raw, min: a, max: b };
+}
+
 export async function listControls({ card = null }) {
   const args = [];
   if (card !== null && card !== undefined) args.push('-c', String(card));

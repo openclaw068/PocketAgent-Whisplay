@@ -10,7 +10,7 @@ import { routeUtterance } from './router.js';
 import { loadJson, saveJson } from './store.js';
 // (openaiChat is imported above with whisperTranscribe/ttsToAudio)
 import { answerReminderQuery, selectRemindersForQuery } from './query.js';
-import { setVolumePercent } from './volume.js';
+import { setVolumePercent, setVolumePercentRaw } from './volume.js';
 import { startButtonWatcher } from './gpio_button.js';
 import { startWhisplayButtonWatcher } from './whisplay_button.js';
 import { bestReminderMatch } from './match.js';
@@ -762,7 +762,20 @@ async function oneTurn({ abortSignal = null } = {}) {
       }
       return;
     } else if (routed?.intent === 'set_volume' && routed.volumePercent != null) {
-      const pct = await setVolumePercent({ card: DEFAULTS.alsaCard, control: DEFAULTS.alsaVolumeControl, percent: routed.volumePercent });
+      let pct = null;
+      if (DEFAULTS.alsaVolumeRawControl) {
+        const r = await setVolumePercentRaw({
+          card: DEFAULTS.alsaCard,
+          control: DEFAULTS.alsaVolumeRawControl,
+          percent: routed.volumePercent,
+          min: DEFAULTS.alsaVolumeRawMin,
+          max: DEFAULTS.alsaVolumeRawMax
+        });
+        pct = r.percent;
+      } else {
+        pct = await setVolumePercent({ card: DEFAULTS.alsaCard, control: DEFAULTS.alsaVolumeControl, percent: routed.volumePercent });
+      }
+
       await say(`Done — volume set to ${pct} percent.`);
       return;
     } else if (routed?.intent === 'delete_reminder') {
@@ -959,11 +972,23 @@ async function oneTurn({ abortSignal = null } = {}) {
 
       // Volume
       if (r1.intent === 'set_volume') {
-        const pct = await setVolumePercent({
-          card: DEFAULTS.alsaCard,
-          control: DEFAULTS.alsaVolumeControl,
-          percent: r1.percent
-        });
+        let pct = null;
+        if (DEFAULTS.alsaVolumeRawControl) {
+          const r = await setVolumePercentRaw({
+            card: DEFAULTS.alsaCard,
+            control: DEFAULTS.alsaVolumeRawControl,
+            percent: r1.percent,
+            min: DEFAULTS.alsaVolumeRawMin,
+            max: DEFAULTS.alsaVolumeRawMax
+          });
+          pct = r.percent;
+        } else {
+          pct = await setVolumePercent({
+            card: DEFAULTS.alsaCard,
+            control: DEFAULTS.alsaVolumeControl,
+            percent: r1.percent
+          });
+        }
         await say(`Done — volume set to ${pct} percent.`);
         return;
       }
@@ -1271,11 +1296,23 @@ async function oneTurn({ abortSignal = null } = {}) {
   }
 
   if (result.intent === 'set_volume') {
-    const pct = await setVolumePercent({
-      card: DEFAULTS.alsaCard,
-      control: DEFAULTS.alsaVolumeControl,
-      percent: result.percent
-    });
+    let pct = null;
+    if (DEFAULTS.alsaVolumeRawControl) {
+      const r = await setVolumePercentRaw({
+        card: DEFAULTS.alsaCard,
+        control: DEFAULTS.alsaVolumeRawControl,
+        percent: result.percent,
+        min: DEFAULTS.alsaVolumeRawMin,
+        max: DEFAULTS.alsaVolumeRawMax
+      });
+      pct = r.percent;
+    } else {
+      pct = await setVolumePercent({
+        card: DEFAULTS.alsaCard,
+        control: DEFAULTS.alsaVolumeControl,
+        percent: result.percent
+      });
+    }
     await say(`Done — volume set to ${pct} percent.`);
     return;
   }
