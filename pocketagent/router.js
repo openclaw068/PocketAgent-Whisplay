@@ -56,7 +56,9 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     forgetQuery: 'string|null',
 
     // set_volume
-    volumePercent: 'number|null'
+    volumePercent: 'number|null',
+    volumeDeltaPercent: 'number|null',
+    volumeDirection: 'up|down|null'
   };
 
   const sys =
@@ -79,6 +81,14 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     'For deleting reminders: if user says "delete/remove/cancel" a reminder, choose intent="delete_reminder" with the same target fields. ' +
     'For acknowledgements: if user indicates completion (done/complete/finished) and there is a recent reminder context, choose intent="ack_reminder" with ackTarget="latest". ' +
     'If the user says to complete a specific reminder by description, choose ackTarget="by_text" and set ackText to the short description (e.g., "trash"). ' +
+    'VOLUME RULES: ' +
+    'If user says set volume to X percent, intent="set_volume" and set volumePercent=X. ' +
+    'If user says volume up / turn it up / louder, intent="set_volume" and set volumeDirection="up". ' +
+    'If user says volume down / turn it down / quieter, intent="set_volume" and set volumeDirection="down". ' +
+    'If user says raise/increase volume by X percent, intent="set_volume" and set volumeDeltaPercent=X. ' +
+    'If user says lower/decrease volume by X percent, intent="set_volume" and set volumeDeltaPercent=-X (or set direction="down" and delta). ' +
+    'If user provides both an absolute percent and a delta, prefer the absolute. ' +
+
     'For creating reminders, extract reminderText and timeText in the user\'s words. timeText can be a clock time ("7am") OR a relative time ("in 5 minutes", "in one minute"). ' +
     'If the user asks for a repeating reminder (e.g. "every other Tuesday", "weekends", "every day"), set recurrence.kind="rrule" and provide an RFC5545 RRULE string (no DTSTART) plus timezone (usually America/Chicago unless user says otherwise). ' +
     'If it is not repeating, set recurrence.kind="none". ' +

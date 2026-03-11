@@ -49,3 +49,24 @@ export async function listControls({ card = null }) {
   const { out } = await run('amixer', args);
   return out;
 }
+
+export async function getVolumeRaw({ card = null, control = 'Playback' }) {
+  const args = [];
+  if (card !== null && card !== undefined) args.push('-c', String(card));
+  args.push('sget', control);
+  const { out } = await run('amixer', args);
+
+  // Try to parse the first channel raw integer value, e.g.:
+  // Front Left: 200 [78%] [-27.50dB]
+  const m = out.match(/Front Left:\s*Playback\s*(\d+)\s*\[/i) || out.match(/Front Left:\s*(\d+)\s*\[/i);
+  if (!m) throw new Error(`Could not parse raw volume from amixer output for ${control}`);
+  return Number(m[1]);
+}
+
+export function rawToPercent({ raw, min = 200, max = 255 }) {
+  const lo = Math.min(Number(min), Number(max));
+  const hi = Math.max(Number(min), Number(max));
+  const r = Math.max(lo, Math.min(hi, Number(raw)));
+  if (hi === lo) return 0;
+  return Math.round(((r - lo) / (hi - lo)) * 100);
+}

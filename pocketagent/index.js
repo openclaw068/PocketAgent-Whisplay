@@ -10,7 +10,7 @@ import { routeUtterance } from './router.js';
 import { loadJson, saveJson } from './store.js';
 // (openaiChat is imported above with whisperTranscribe/ttsToAudio)
 import { answerReminderQuery, selectRemindersForQuery } from './query.js';
-import { setVolumePercent, setVolumePercentRaw } from './volume.js';
+import { setVolumePercent, setVolumePercentRaw, getVolumeRaw, rawToPercent } from './volume.js';
 import { startButtonWatcher } from './gpio_button.js';
 import { startWhisplayButtonWatcher } from './whisplay_button.js';
 import { bestReminderMatch } from './match.js';
@@ -761,19 +761,55 @@ async function oneTurn({ abortSignal = null } = {}) {
         await say('Okay — which reminder do you mean?');
       }
       return;
-    } else if (routed?.intent === 'set_volume' && routed.volumePercent != null) {
+    } else if (routed?.intent === 'set_volume') {
+      // Support:
+      // - absolute: "set volume to 60%"
+      // - directional step: "volume up/down" (5% step)
+      // - delta: "raise volume 10%" / "lower volume by 10%"
+
+      const step = Number(process.env.POCKETAGENT_VOLUME_STEP_PERCENT ?? 5);
+
+      const hasAbs = routed.volumePercent != null;
+      const hasDelta = routed.volumeDeltaPercent != null;
+      const dir = routed.volumeDirection;
+
+      let targetPct = null;
+
+      if (hasAbs) {
+        targetPct = Number(routed.volumePercent);
+      } else {
+        // Determine current percent (only supported for raw mapping right now)
+        if (DEFAULTS.alsaVolumeRawControl) {
+          const raw = await getVolumeRaw({ card: DEFAULTS.alsaCard, control: DEFAULTS.alsaVolumeRawControl });
+          const curPct = rawToPercent({ raw, min: DEFAULTS.alsaVolumeRawMin, max: DEFAULTS.alsaVolumeRawMax });
+
+          if (hasDelta) {
+            targetPct = curPct + Number(routed.volumeDeltaPercent);
+          } else if (dir === 'up') {
+            targetPct = curPct + step;
+          } else if (dir === 'down') {
+            targetPct = curPct - step;
+          }
+        }
+      }
+
+      if (targetPct == null || Number.isNaN(targetPct)) {
+        await say('Tell me a percent, like “set volume to 60 percent.”');
+        return;
+      }
+
       let pct = null;
       if (DEFAULTS.alsaVolumeRawControl) {
         const r = await setVolumePercentRaw({
           card: DEFAULTS.alsaCard,
           control: DEFAULTS.alsaVolumeRawControl,
-          percent: routed.volumePercent,
+          percent: targetPct,
           min: DEFAULTS.alsaVolumeRawMin,
           max: DEFAULTS.alsaVolumeRawMax
         });
         pct = r.percent;
       } else {
-        pct = await setVolumePercent({ card: DEFAULTS.alsaCard, control: DEFAULTS.alsaVolumeControl, percent: routed.volumePercent });
+        pct = await setVolumePercent({ card: DEFAULTS.alsaCard, control: DEFAULTS.alsaVolumeControl, percent: targetPct });
       }
 
       await say(`Done — volume set to ${pct} percent.`);
@@ -972,12 +1008,15 @@ async function oneTurn({ abortSignal = null } = {}) {
 
       // Volume
       if (r1.intent === 'set_volume') {
+        // Legacy/state-machine volume intent is absolute only.
+        const targetPct = Number(r1.percent);
+
         let pct = null;
         if (DEFAULTS.alsaVolumeRawControl) {
           const r = await setVolumePercentRaw({
             card: DEFAULTS.alsaCard,
             control: DEFAULTS.alsaVolumeRawControl,
-            percent: r1.percent,
+            percent: targetPct,
             min: DEFAULTS.alsaVolumeRawMin,
             max: DEFAULTS.alsaVolumeRawMax
           });
@@ -986,7 +1025,7 @@ async function oneTurn({ abortSignal = null } = {}) {
           pct = await setVolumePercent({
             card: DEFAULTS.alsaCard,
             control: DEFAULTS.alsaVolumeControl,
-            percent: r1.percent
+            percent: targetPct
           });
         }
         await say(`Done — volume set to ${pct} percent.`);
