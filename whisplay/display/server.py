@@ -280,9 +280,29 @@ def render_frame(s: dict, t: float):
 
     # subtitle bubble
 
-    subtitle = (s.get("line2") or s.get("next") or "").strip()
-    if subtitle:
-        subtitle = subtitle[:SUBTITLE_MAX_CHARS]
+    subtitle_full = (s.get("line2") or s.get("next") or "").strip()
+
+    # While speaking, scroll long assistant text so the user can read the full message.
+    # We do a simple "window" scroll in character space, then wrap into 2 lines.
+    # (The bubble is small; this keeps the code dependency-light.)
+    if subtitle_full:
+        subtitle = subtitle_full
+        if status == "speaking" and len(subtitle_full) > SUBTITLE_MAX_CHARS:
+            # Scroll speed: ~6 chars/sec. Add a short pause at the start.
+            scroll_start_delay = 0.8
+            cps = float(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_CPS", "6"))
+            t2 = max(0.0, t - scroll_start_delay)
+            offset = int(t2 * cps)
+
+            # Wrap-around marquee with a spacer so it doesn't look like words smash together.
+            spacer = "   •   "
+            loop = subtitle_full + spacer
+            if len(loop) < 4:
+                subtitle = subtitle_full
+            else:
+                offset = offset % len(loop)
+                window = (loop + loop)[offset : offset + SUBTITLE_MAX_CHARS]
+                subtitle = window
     else:
         subtitle = "ready" if status == "idle" else ""
 
