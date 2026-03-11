@@ -584,7 +584,9 @@ async function oneTurn({ abortSignal = null } = {}) {
 
           if (r?.json?.ok) {
             void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
-            await say(`Perfect — I’ll remind you at ${timeText}.`);
+            const tt = String(timeText || '').trim();
+            const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
+            await say(`Perfect — I’ll remind you ${when}.`);
           } else {
             await say('I had trouble saving that reminder. Check the logs.');
           }
@@ -875,7 +877,9 @@ async function oneTurn({ abortSignal = null } = {}) {
 
         if (r?.json?.ok) {
           void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
-          await say(`Perfect — I’ll remind you at ${timeText}.`);
+          const tt = String(timeText || '').trim();
+          const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
+          await say(`Perfect — I’ll remind you ${when}.`);
         } else {
           await say('I had trouble saving that reminder. Check the logs.');
         }
@@ -1112,7 +1116,9 @@ async function oneTurn({ abortSignal = null } = {}) {
     runtime.state.collected = null;
     if (r?.json?.ok) {
       void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
-      await say(`Perfect — I’ll remind you at ${timeText}.`);
+      const tt = String(timeText || '').trim();
+    const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
+    await say(`Perfect — I’ll remind you ${when}.`);
     } else {
       await say('I had trouble saving that reminder. Check the logs.');
     }
