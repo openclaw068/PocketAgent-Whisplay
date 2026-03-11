@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""PocketAgent Wi-Fi setup portal (offline-friendly).
+
+Goals:
+- Works with no internet.
+- Lets user enter SSID + password from a phone.
+- Adds the network as a saved NetworkManager connection (does NOT force switching unless user clicks connect).
+
+Assumptions:
+- Raspberry Pi OS Bookworm with NetworkManager.
+- nmcli is available.
+
+Security note:
+- This is intended for local LAN use.
+- It accepts a Wi-Fi password; keep it bound to localhost or your setup AP interface.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+HOST = os.environ.get("POCKETAGENT_WIFI_PORTAL_HOST", "0.0.0.0")
+PORT = int(os.environ.get("POCKETAGENT_WIFI_PORTAL_PORT", "3792"))
+
+IFACE = os.environ.get("POCKETAGENT_WIFI_IFACE", "wlan0")
+
+HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>PocketAgent Wi‑Fi Setup</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px;max-width:560px}
+    h1{font-size:22px;margin:0 0 12px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px}
+    label{display:block;font-size:14px;margin:10px 0 6px}
+    input{width:100%;font-size:16px;padding:10px;border:1px solid #ccc;border-radius:10px}
+    button{margin-top:14px;padding:10px 14px;border-radius:10px;border:0;background:#111;color:#fff;font-size:16px}
+    .row{display:flex;gap:10px}
+    .row > *{flex:1}
+    .muted{color:#666;font-size:13px;margin-top:10px;line-height:1.35}
+    pre{background:#f6f6f6;padding:10px;border-radius:10px;overflow:auto}
+  </style>
+</head>
+<body>
+  <h1>PocketAgent Wi‑Fi Setup</h1>
+  <div class=\"card\">
+    <div class=\"row\">
+      <div>
+        <label>SSID</label>
+        <input id=\"ssid\" placeholder=\"Network name\" />
+      </div>
+      <div>
+        <label>Priority</label>
+        <input id=\"prio\" placeholder=\"e.g. 50\" value=\"50\" />
+      </div>
+    </div>
+    <label>Password</label>
+    <input id=\"pass\" type=\"password\" placeholder=\"Wi‑Fi password\" />
+
+    <button onclick=\"save()\">Save network</button>
+    <div class=\"muted\">
+      This saves the network to NetworkManager. It does not force switching immediately.
+    </div>
+
+    <div id=\"out\" style=\"margin-top:12px\"></div>
+  </div>
+
+  <script>
+    async function save(){
+      const ssid = document.getElementById('ssid').value.trim();
+      const pass = document.getElementById('pass').value;
+      const prio = Number(document.getElementById('prio').value || '50');
+      const out = document.getElementById('out');
+      out.innerHTML = 'Saving…';
+      const res = await fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ssid, pass, priority: prio})});
+      const j = await res.json().catch(()=>({ok:false,error:'bad json'}));
+      out.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
+    }
+  </script>
+</body>
+</html>"""
+
+
+def run(cmd: list[str]) -> tuple[int, str]:
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return p.returncode, (p.stdout or "").strip()
+
+
+def ensure_connection(ssid: str):
+    # if connection profile exists, do nothing
+    code, out = run(["nmcli", "-t", "-f", "NAME", "connection", "show"])
+    if code != 0:
+        raise RuntimeError(out)
+    names = set(out.splitlines())
+    if ssid in names:
+        return
+
+    code, out = run(["nmcli", "connection", "add", "type", "wifi", "ifname", IFACE, "con-name", ssid, "ssid", ssid])
+    if code != 0:
+        raise RuntimeError(out)
+
+
+def save_connection(ssid: str, password: str, priority: int):
+    ensure_connection(ssid)
+    cmd = [
+        "nmcli", "connection", "modify", ssid,
+        "connection.autoconnect", "yes",
+        "connection.autoconnect-priority", str(int(priority)),
+        "wifi-sec.key-mgmt", "wpa-psk",
+        "wifi-sec.psk", password,
+    ]
+    code, out = run(cmd)
+    if code != 0:
+        raise RuntimeError(out)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code: int, body: bytes, ct: str = "text/html; charset=utf-8"):
+        self.send_response(code)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/" or self.path.startswith("/?"):
+            return self._send(200, HTML.encode("utf-8"))
+        if self.path == "/health":
+            return self._send(200, b"{\"ok\":true}", "application/json")
+        return self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        if self.path != "/api/save":
+            return self._send(404, b"{\"ok\":false,\"error\":\"not found\"}", "application/json")
+        n = int(self.headers.get("content-length") or "0")
+        raw = self.rfile.read(n) if n else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except Exception:
+            return self._send(400, b"{\"ok\":false,\"error\":\"bad json\"}", "application/json")
+
+        ssid = str(body.get("ssid") or "").strip()
+        password = str(body.get("pass") or "")
+        priority = int(body.get("priority") or 50)
+
+        if not ssid:
+            return self._send(400, b"{\"ok\":false,\"error\":\"missing ssid\"}", "application/json")
+        if not password:
+            return self._send(400, b"{\"ok\":false,\"error\":\"missing password\"}", "application/json")
+
+        try:
+            save_connection(ssid, password, priority)
+            return self._send(200, json.dumps({"ok": True, "saved": ssid, "priority": priority}).encode("utf-8"), "application/json")
+        except Exception as e:
+            return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
+
+
+def main():
+    print(f"[wifi-portal] listening on http://{HOST}:{PORT} (iface={IFACE})")
+    HTTPServer((HOST, PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

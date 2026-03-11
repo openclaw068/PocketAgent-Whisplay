@@ -162,3 +162,8 @@ echo "2) Reboot (Whisplay driver install requires it): sudo reboot"
 echo "After reboot:"
 echo "  sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent"
 echo "  sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f"
+
+echo ""
+echo "Optional: offline Wi-Fi setup portal (adds saved networks via a phone web page):"
+echo "  sudo ./scripts/install_wifi_portal.sh"
+echo "  Then open: http://<pi-ip>:3792"

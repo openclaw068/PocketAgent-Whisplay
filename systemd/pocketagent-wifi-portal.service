@@ -1,0 +1,17 @@
+[Unit]
+Description=PocketAgent Wi-Fi Setup Portal (offline)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pocketagent
+EnvironmentFile=-/etc/default/pocketagent
+ExecStart=/usr/bin/python3 /opt/pocketagent/wifi_portal/server.py
+Restart=on-failure
+RestartSec=2
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
