@@ -188,15 +188,30 @@ def ensure_connection(ssid: str):
 
 
 def save_connection(ssid: str, password: str, priority: int):
+    """Save/update a Wi‑Fi connection profile.
+
+    We apply priority/autoconnect first so even if security settings error,
+    the profile still gets the requested priority.
+    """
     ensure_connection(ssid)
-    cmd = [
+
+    # 1) autoconnect + priority
+    cmd1 = [
         "nmcli", "connection", "modify", ssid,
         "connection.autoconnect", "yes",
         "connection.autoconnect-priority", str(int(priority)),
+    ]
+    code, out = run(cmd1)
+    if code != 0:
+        raise RuntimeError(out)
+
+    # 2) security + password
+    cmd2 = [
+        "nmcli", "connection", "modify", ssid,
         "wifi-sec.key-mgmt", "wpa-psk",
         "wifi-sec.psk", password,
     ]
-    code, out = run(cmd)
+    code, out = run(cmd2)
     if code != 0:
         raise RuntimeError(out)
 
