@@ -621,9 +621,9 @@ async function oneTurn({ abortSignal = null } = {}) {
         const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
         const hits = semMemory.search({ queryEmbedding: qvec, k: 3, minScore: 0.18 });
 
+        // No relevant memories? Fall back to normal chat.
         if (!hits.length) {
-          await say("I don't have anything saved for that yet.");
-          return;
+          throw new Error('no_memory_hits');
         }
 
         const sys =
@@ -643,9 +643,12 @@ async function oneTurn({ abortSignal = null } = {}) {
         await say((answer || '').trim() || 'Okay.');
         return;
       } catch (e) {
-        console.error('[PocketAgent] query_memory failed:', e?.message ?? e);
-        await say('I had trouble searching memory. Check the logs.');
-        return;
+        if ((e?.message ?? '') !== 'no_memory_hits') {
+          console.error('[PocketAgent] query_memory failed:', e?.message ?? e);
+          await say('I had trouble searching memory. Check the logs.');
+          return;
+        }
+        // no_memory_hits -> fall through to normal chat
       }
     }
 
