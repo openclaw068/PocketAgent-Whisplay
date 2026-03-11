@@ -10,8 +10,9 @@ EnvironmentFile=-/etc/default/pocketagent
 ExecStart=/usr/bin/python3 /opt/pocketagent/wifi_portal/server.py
 Restart=on-failure
 RestartSec=2
-User=pi
-Group=pi
+# Run as root so nmcli/NetworkManager modifications work without polkit prompts.
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
