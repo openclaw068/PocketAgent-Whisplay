@@ -1,0 +1,4 @@
+**** List of CAPTURE Hardware Devices ****
+card 1: wm8960soundcard [wm8960-soundcard], device 0: bcm2835-i2s-wm8960-hifi wm8960-hifi-0 [bcm2835-i2s-wm8960-hifi wm8960-hifi-0]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0

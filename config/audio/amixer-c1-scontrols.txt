@@ -1,0 +1,53 @@
+Simple mixer control 'Headphone',0
+Simple mixer control 'Headphone Playback ZC',0
+Simple mixer control 'Speaker',0
+Simple mixer control 'Speaker AC',0
+Simple mixer control 'Speaker DC',0
+Simple mixer control 'Speaker Playback ZC',0
+Simple mixer control 'PCM Playback -6dB',0
+Simple mixer control 'Mono Output Mixer Left',0
+Simple mixer control 'Mono Output Mixer Right',0
+Simple mixer control 'Playback',0
+Simple mixer control 'Capture',0
+Simple mixer control 'Capture Volume ZC',0
+Simple mixer control '3D',0
+Simple mixer control '3D Filter Lower Cut-Off',0
+Simple mixer control '3D Filter Upper Cut-Off',0
+Simple mixer control 'ADC Data Output Select',0
+Simple mixer control 'ADC High Pass Filter',0
+Simple mixer control 'ADC PCM',0
+Simple mixer control 'ADC Polarity',0
+Simple mixer control 'ALC Attack',0
+Simple mixer control 'ALC Decay',0
+Simple mixer control 'ALC Function',0
+Simple mixer control 'ALC Hold Time',0
+Simple mixer control 'ALC Max Gain',0
+Simple mixer control 'ALC Min Gain',0
+Simple mixer control 'ALC Mode',0
+Simple mixer control 'ALC Target',0
+Simple mixer control 'DAC Deemphasis',0
+Simple mixer control 'DAC Filter Characteristics',0
+Simple mixer control 'DAC Mono Mix',0
+Simple mixer control 'DAC Polarity',0
+Simple mixer control 'Left Boost Mixer LINPUT1',0
+Simple mixer control 'Left Boost Mixer LINPUT2',0
+Simple mixer control 'Left Boost Mixer LINPUT3',0
+Simple mixer control 'Left Input Boost Mixer LINPUT1',0
+Simple mixer control 'Left Input Boost Mixer LINPUT2',0
+Simple mixer control 'Left Input Boost Mixer LINPUT3',0
+Simple mixer control 'Left Input Mixer Boost',0
+Simple mixer control 'Left Output Mixer Boost Bypass',0
+Simple mixer control 'Left Output Mixer LINPUT3',0
+Simple mixer control 'Left Output Mixer PCM',0
+Simple mixer control 'Noise Gate',0
+Simple mixer control 'Noise Gate Threshold',0
+Simple mixer control 'Right Boost Mixer RINPUT1',0
+Simple mixer control 'Right Boost Mixer RINPUT2',0
+Simple mixer control 'Right Boost Mixer RINPUT3',0
+Simple mixer control 'Right Input Boost Mixer RINPUT1',0
+Simple mixer control 'Right Input Boost Mixer RINPUT2',0
+Simple mixer control 'Right Input Boost Mixer RINPUT3',0
+Simple mixer control 'Right Input Mixer Boost',0
+Simple mixer control 'Right Output Mixer Boost Bypass',0
+Simple mixer control 'Right Output Mixer PCM',0
+Simple mixer control 'Right Output Mixer RINPUT3',0
