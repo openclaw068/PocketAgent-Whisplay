@@ -294,7 +294,9 @@ def render_frame(s: dict, t: float):
     if subtitle_full:
         subtitle = subtitle_full
 
-        if status == "speaking" and len(subtitle_full) > SUBTITLE_MAX_CHARS:
+        # Scroll any moderately-long assistant text while speaking.
+        # (Users will expect motion even if the text isn't insanely long.)
+        if status == "speaking" and len(subtitle_full) > int(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_MIN_CHARS", "40")):
             subtitle_scrolling = True
 
             scroll_start_delay = 0.6
