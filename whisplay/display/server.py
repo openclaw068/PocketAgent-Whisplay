@@ -88,6 +88,10 @@ state = {
     "line3": "",
     "line4": "",
     "next": "",
+
+    # Optional wifi indicator (if set by the agent)
+    # wifi: { rssiDbm: -50, bars: 3, ssid: "IoT" }
+    "wifi": None,
 }
 
 # Animation settings
@@ -293,6 +297,24 @@ def render_frame(s: dict, t: float):
 
     ui = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(ui)
+    # wifi indicator (top-left)
+    wifi = s.get("wifi") or {}
+    try:
+        bars = int(wifi.get("bars") or 0)
+    except Exception:
+        bars = 0
+    bars = max(0, min(4, bars))
+
+    # Draw iPhone-like bars
+    x0, y0 = (14, 16)
+    bar_w, gap = (4, 2)
+    for i in range(4):
+        h = 4 + i * 4
+        x = x0 + i * (bar_w + gap)
+        y = y0 + (16 - h)
+        col = (255, 255, 255, 240) if i < bars else (255, 255, 255, 90)
+        d.rounded_rectangle((x, y, x + bar_w, y + h), radius=2, fill=col)
+
     # status pill
     label = (status or "idle").upper()
     pill = (60, 14, 180, 38)
