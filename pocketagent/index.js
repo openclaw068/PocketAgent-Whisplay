@@ -240,28 +240,26 @@ async function notifyAndMaybeAck({ id, text, kind }) {
   void displayUpdate({ status: 'speaking', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
   await say(prompt);
 
-  // After speaking, listen briefly for a yes/done response.
-  // IMPORTANT: while we are ack-listening, ignore PTT presses to prevent two concurrent
-  // arecord processes (the user's PTT and the ack-listen) from fighting.
-  let heard = '';
-  const tries = Number(process.env.POCKETAGENT_ACK_LISTEN_TRIES ?? 3);
-  const retryDelayMs = Number(process.env.POCKETAGENT_ACK_LISTEN_RETRY_DELAY_MS ?? 350);
+  // Ack behavior:
+  // - ptt: do not auto-record; user can press and say "yes/done" and we fast-path ack.
+  // - auto: auto-record briefly for a yes/done.
+  if (ACK_MODE === 'auto') {
+    let heard = '';
+    const tries = Number(process.env.POCKETAGENT_ACK_LISTEN_TRIES ?? 3);
+    const retryDelayMs = Number(process.env.POCKETAGENT_ACK_LISTEN_RETRY_DELAY_MS ?? 350);
 
-  ackListening = true;
-  try {
     for (let i = 0; i < tries; i++) {
       heard = await listenForAck({ secondsMax: 5 });
       if (heard) break;
       if (i < tries - 1) await new Promise(r => setTimeout(r, retryDelayMs));
     }
-  } finally {
-    ackListening = false;
-  }
 
-  if (isAck(heard)) {
-    await remindersPost('/reminders/ack', { id });
-    await say("Awesome — I’ll take it off the list.");
+    if (isAck(heard)) {
+      await remindersPost('/reminders/ack', { id });
+      await say("Awesome — I’ll take it off the list.");
+    }
   }
+  // else: ptt mode does nothing here (user can still ack via button; fast-path handles it)
 }
 
 // Reminders run in a separate daemon (see reminders_daemon.js). The chat agent only
@@ -279,10 +277,10 @@ const NOTIFY_PORT = Number(process.env.POCKETAGENT_NOTIFY_PORT || 3781);
 let busy = false;
 const notifyQueue = [];
 
-// When we're doing an automatic ack-listen (after a reminder fires), we temporarily
-// ignore push-to-talk presses to avoid two concurrent arecord processes fighting
-// over the capture device.
-let ackListening = false;
+// Ack behavior after a reminder fires:
+// - "ptt" (default): do NOT auto-record; user can press-to-talk "yes/done" and we fast-path ack.
+// - "auto": after speaking the reminder prompt, auto-record briefly for a yes/done.
+const ACK_MODE = (process.env.POCKETAGENT_ACK_MODE || 'ptt').toLowerCase();
 
 function remindersReqOptions(pathname, method, bodyBuf = null) {
   const headers = bodyBuf
@@ -1358,10 +1356,6 @@ if (PTT_MODE === 'stdin') {
 const watcher = (PTT_MODE === 'whisplay') ? startWhisplayButtonWatcher() : startButtonWatcher();
   watcher
     .onPress(() => {
-      if (ackListening) {
-        console.log('[PocketAgent] ignoring PTT press during ack-listen');
-        return;
-      }
       if (inTurn) return;
       inTurn = true;
       pressAtMs = Date.now();
