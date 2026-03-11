@@ -163,7 +163,9 @@ async function say(text) {
   const spoken = String(text || '').trim();
   try {
     // Show what we're about to say on the display.
-    void displayUpdate({ status: 'speaking', line1: 'PocketAgent', line2: spoken.slice(0, 160) });
+    // IMPORTANT: don't truncate too aggressively — the Whisplay subtitle bubble can scroll.
+    const displayText = spoken.length > 600 ? (spoken.slice(0, 600) + '…') : spoken;
+    void displayUpdate({ status: 'speaking', line1: 'PocketAgent', line2: displayText });
 
     const ttsSpeed = Number(process.env.POCKETAGENT_TTS_SPEED ?? 1.0);
     const { audio, contentType } = await ttsToAudio({
@@ -963,9 +965,10 @@ async function oneTurn({ abortSignal = null } = {}) {
         const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
         const hits = semMemory.search({ queryEmbedding: qvec, k: 3, minScore: 0.18 });
 
+        // If we have no relevant memories, fall back to normal chat.
+        // This prevents generic questions (e.g. "who owns Costco") from getting a memory-nothing response.
         if (!hits.length) {
-          await say("I don't have anything saved for that yet.");
-          return;
+          throw new Error('no_memory_hits');
         }
 
         // Ask the LLM to answer using ONLY the returned memories.
@@ -1020,7 +1023,9 @@ async function oneTurn({ abortSignal = null } = {}) {
         return;
       }
     } catch (e) {
-      console.error('[PocketAgent] semantic memory handling failed:', e?.message ?? e);
+      if ((e?.message ?? '') !== 'no_memory_hits') {
+        console.error('[PocketAgent] semantic memory handling failed:', e?.message ?? e);
+      }
       // Fall through to general chat.
     }
 
