@@ -145,7 +145,11 @@ _FONT_STATUS = _load_font(14, bold=True)
 _FONT_SUB = _load_font(14, bold=False)
 
 
-def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_lines: int = 2):
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_lines: int = 2, ellipsize: bool = True):
+    """Word-wrap text into up to max_lines.
+
+    If ellipsize=True, the last line is truncated with an ellipsis to fit.
+    """
     text = (text or "").strip()
     if not text:
         return []
@@ -165,13 +169,41 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int, max_l
     if line and len(lines) < max_lines:
         lines.append(line)
 
-    # If still too long, ellipsize last line
-    if lines:
+    if ellipsize and lines:
         last = lines[-1]
         while draw.textlength(last, font=font) > max_width and len(last) > 1:
             last = last[:-2].rstrip() + "…"
         lines[-1] = last
     return lines
+
+
+def _wrap_text_all(draw: ImageDraw.ImageDraw, text: str, font, max_width: int):
+    """Word-wrap text into as many lines as needed (no ellipsize)."""
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    words = text.split()
+    lines = []
+    line = ""
+
+    for w in words:
+        test = (line + " " + w).strip()
+        if not line:
+            line = w
+            continue
+
+        if draw.textlength(test, font=font) <= max_width:
+            line = test
+        else:
+            lines.append(line)
+            line = w
+
+    if line:
+        lines.append(line)
+
+    # Safety: cap runaway line counts
+    return lines[:200]
 
 
 def _bg_color_for(status: str):
@@ -282,43 +314,40 @@ def render_frame(s: dict, t: float):
 
     subtitle_full = (s.get("line2") or s.get("next") or "").strip()
 
-    # While speaking, scroll long assistant text so the user can read the full message.
-    # Important: the existing word-wrap helper ellipsizes long "words". A scrolling marquee
-    # often contains partial words with no spaces, so we render scrolling text as two fixed
-    # character lines instead of word-wrapping.
+    # While speaking, vertically scroll the assistant text (like a normal chat transcript).
     subtitle = ""
     subtitle_scrolling = False
-    scroll_line1 = ""
-    scroll_line2 = ""
+    scroll_lines = []
 
     if subtitle_full:
         subtitle = subtitle_full
 
-        # Scroll any moderately-long assistant text while speaking.
-        # (Users will expect motion even if the text isn't insanely long.)
         if status == "speaking" and len(subtitle_full) > int(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_MIN_CHARS", "40")):
             subtitle_scrolling = True
 
-            scroll_start_delay = 0.6
-            cps = float(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_CPS", "8"))
-            t2 = max(0.0, t - scroll_start_delay)
-            offset = int(t2 * cps)
+            # Wrap full text to bubble width (no ellipsize), then scroll by line.
+            max_width = 190
+            all_lines = _wrap_text_all(d, subtitle_full, _FONT_SUB, max_width=max_width)
 
-            spacer = "   •   "
-            loop = subtitle_full + spacer
-            if len(loop) >= 4:
-                offset = offset % len(loop)
+            # Visible lines in bubble: 2 lines (y=242,258). You can bump to 3 if you reduce font.
+            visible = int(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_VISIBLE_LINES", "2"))
+            visible = max(1, min(6, visible))
 
-                # Show a 2-line window (chars), to ensure visible motion.
-                window_len = int(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_WINDOW_CHARS", str(SUBTITLE_MAX_CHARS)))
-                window_len = max(20, min(140, window_len))
-                window = (loop + loop)[offset : offset + window_len]
+            # Scroll speed: lines/sec
+            start_delay = 0.6
+            lps = float(os.environ.get("POCKETAGENT_DISPLAY_SCROLL_LPS", "1.0"))
+            t2 = max(0.0, t - start_delay)
+            line_offset = int(t2 * lps)
 
-                half = window_len // 2
-                scroll_line1 = window[:half].ljust(half)
-                scroll_line2 = window[half:window_len].ljust(window_len - half)
-            else:
+            if len(all_lines) <= visible:
                 subtitle_scrolling = False
+            else:
+                # Loop with a small blank gap
+                gap = [""]
+                loop = all_lines + gap
+                line_offset = line_offset % len(loop)
+                loop2 = loop + loop
+                scroll_lines = loop2[line_offset : line_offset + visible]
 
     if not subtitle and not subtitle_scrolling:
         subtitle = "ready" if status == "idle" else ""
@@ -327,12 +356,13 @@ def render_frame(s: dict, t: float):
     d.rounded_rectangle(sub, radius=16, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
 
     if _FONT_SUB is not None:
-        if subtitle_scrolling and (scroll_line1 or scroll_line2):
-            # Render two fixed lines (no wrapping/ellipsize), so scrolling always moves.
-            d.text((30, 242), scroll_line1, font=_FONT_SUB, fill=(60, 80, 120))
-            d.text((30, 258), scroll_line2, font=_FONT_SUB, fill=(60, 80, 120))
+        if subtitle_scrolling and scroll_lines:
+            y0 = 242
+            line_h = 16
+            for i, ln in enumerate(scroll_lines):
+                d.text((30, y0 + i * line_h), ln, font=_FONT_SUB, fill=(60, 80, 120))
         else:
-            lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2)
+            lines = _wrap_text(d, subtitle, _FONT_SUB, max_width=190, max_lines=2, ellipsize=True)
             y = 242
             for ln in lines:
                 d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
