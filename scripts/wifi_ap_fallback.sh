@@ -9,6 +9,8 @@ AP_SSID=${POCKETAGENT_SETUP_AP_SSID:-PocketAgent-Setup}
 AP_PASS=${POCKETAGENT_SETUP_AP_PASS:-pocketagent}
 AP_ADDR=${POCKETAGENT_SETUP_AP_ADDR:-192.168.4.1}
 AP_MASK=${POCKETAGENT_SETUP_AP_MASK:-24}
+AP_CHANNEL=${POCKETAGENT_SETUP_AP_CHANNEL:-1}
+AP_COUNTRY=${POCKETAGENT_SETUP_AP_COUNTRY:-US}
 PORT=${POCKETAGENT_WIFI_PORTAL_PORT:-3792}
 
 HOSTAPD_CONF=/run/pocketagent-hostapd.conf
@@ -30,12 +32,14 @@ start_ap() {
   ip link set "$IFACE" up || true
 
   cat > "$HOSTAPD_CONF" <<EOF
+country_code=$AP_COUNTRY
 interface=$IFACE
 driver=nl80211
 ssid=$AP_SSID
 hw_mode=g
-channel=6
-wmm_enabled=0
+channel=$AP_CHANNEL
+ieee80211n=1
+wmm_enabled=1
 auth_algs=1
 wpa=2
 wpa_passphrase=$AP_PASS
@@ -57,10 +61,11 @@ EOF
   hostapd "$HOSTAPD_CONF" -dd &
   HOSTAPD_PID=$!
 
-  # Start portal on port 80 bound to AP addr
+    # Start portal on port 80 bound to AP addr
   POCKETAGENT_WIFI_PORTAL_HOST="$AP_ADDR" POCKETAGENT_WIFI_PORTAL_PORT=80 python3 /opt/pocketagent/wifi_portal/server.py &
   PORTAL_PID=$!
 
+  echo "[wifi-ap] setup AP active: ssid=$AP_SSID channel=$AP_CHANNEL addr=$AP_ADDR"
   echo $DNSMASQ_PID > /run/pocketagent-dnsmasq.pid
   echo $HOSTAPD_PID > /run/pocketagent-hostapd.pid
   echo $PORTAL_PID > /run/pocketagent-portal.pid
