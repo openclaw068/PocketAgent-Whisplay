@@ -263,36 +263,46 @@ def _bg_color_for(status: str):
 
 
 def render_frame(s: dict, t: float):
-    """Render a single 240x280 frame as a PIL RGB image.
-
-    Returns a PIL Image, or raises if PIL isn't available.
-    """
+    """Render a single 240x280 frame as a PIL image."""
     if Image is None or ImageDraw is None:
         raise RuntimeError("PIL not installed (install python3-pil)")
 
     status = (s.get("status") or "idle").lower()
 
-    img = Image.new("RGB", (W, H), (0, 0, 0))
+    # Build as RGBA so we can alpha-blend UI/face over the background.
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 255))
 
     # Background
     bg = _fit_cover(_load_bg_image(), W, H)
     if bg is not None:
-        img.paste(bg, (0, 0))
+        img.paste(bg.convert("RGBA"), (0, 0))
         # Add a subtle dark overlay so UI/face remain readable.
         overlay_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_BG_DARKEN", "70"))  # 0-255
         if overlay_alpha > 0:
             ov = Image.new("RGBA", (W, H), (0, 0, 0, max(0, min(255, overlay_alpha))))
-            img = Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+            img = Image.alpha_composite(img, ov)
     else:
         # fallback: solid black
-        d = ImageDraw.Draw(img)
-        d.rectangle((0, 0, W, H), fill=(0, 0, 0))
+        d0 = ImageDraw.Draw(img)
+        d0.rectangle((0, 0, W, H), fill=(0, 0, 0, 255))
 
-    d = ImageDraw.Draw(img)
+    # UI overlay (face + bubbles) with configurable transparency
+    face_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_FACE_ALPHA", "235"))  # 0-255
+    bubble_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_BUBBLE_ALPHA", "240"))  # 0-255
+    outline_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_OUTLINE_ALPHA", "220"))  # 0-255
+
+    ui = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ui)
     # status pill
     label = (status or "idle").upper()
     pill = (60, 14, 180, 38)
-    d.rounded_rectangle(pill, radius=12, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
+    d.rounded_rectangle(
+        pill,
+        radius=12,
+        fill=(255, 255, 255, bubble_alpha),
+        outline=(220, 230, 255, outline_alpha),
+        width=2,
+    )
     if _FONT_STATUS is not None:
         tw = d.textlength(label, font=_FONT_STATUS)
         d.text(((W - tw) // 2, 18), label, font=_FONT_STATUS, fill=(60, 80, 120))
@@ -309,7 +319,7 @@ def render_frame(s: dict, t: float):
     cx, cy = (W // 2, 140 + bob_y)
     # head: slightly wider than tall
     rx, ry = 80, 68
-    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=(255, 255, 255))
+    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=(255, 255, 255, face_alpha))
 
     # ear pads: flat inner edge, rounded outer edge, with a gap from the head
     pad_w, pad_h = 16, 50
@@ -320,14 +330,14 @@ def render_frame(s: dict, t: float):
     # left ear (flat inner wall at inner_x, rounded outer dome)
     inner_x = cx - rx - gap
     outer_x = inner_x - pad_w
-    d.rectangle((outer_x + pad_w//2, top_y, inner_x, bot_y), fill=(255, 255, 255))
-    d.ellipse((outer_x, top_y, outer_x + pad_w, bot_y), fill=(255, 255, 255))
+    d.rectangle((outer_x + pad_w//2, top_y, inner_x, bot_y), fill=(255, 255, 255, face_alpha))
+    d.ellipse((outer_x, top_y, outer_x + pad_w, bot_y), fill=(255, 255, 255, face_alpha))
 
     # right ear
     inner_x = cx + rx + gap
     outer_x = inner_x + pad_w
-    d.rectangle((inner_x, top_y, outer_x - pad_w//2, bot_y), fill=(255, 255, 255))
-    d.ellipse((outer_x - pad_w, top_y, outer_x, bot_y), fill=(255, 255, 255))
+    d.rectangle((inner_x, top_y, outer_x - pad_w//2, bot_y), fill=(255, 255, 255, face_alpha))
+    d.ellipse((outer_x - pad_w, top_y, outer_x, bot_y), fill=(255, 255, 255, face_alpha))
 
     # eyes: spherical circles + single highlight dot
     eye_r = 26
@@ -408,7 +418,13 @@ def render_frame(s: dict, t: float):
 
     # Subtitle bubble (leave a little extra vertical room so descenders (g/j/p/q/y) don't clip)
     sub = (20, 232, 220, 276)
-    d.rounded_rectangle(sub, radius=16, fill=(255, 255, 255), outline=(220, 230, 255), width=2)
+    d.rounded_rectangle(
+        sub,
+        radius=16,
+        fill=(255, 255, 255, bubble_alpha),
+        outline=(220, 230, 255, outline_alpha),
+        width=2,
+    )
 
     if _FONT_SUB is not None:
         if subtitle_scrolling and scroll_lines:
@@ -423,7 +439,9 @@ def render_frame(s: dict, t: float):
                 d.text((30, y), ln, font=_FONT_SUB, fill=(60, 80, 120))
                 y += 16
 
-    return img
+    # Composite UI onto background and return as RGB for downstream conversion.
+    img = Image.alpha_composite(img, ui)
+    return img.convert("RGB")
 
 
 def rgb888_to_rgb565_bytes(img) -> bytes:
