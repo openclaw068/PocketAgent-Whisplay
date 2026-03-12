@@ -7,7 +7,8 @@ Wants=NetworkManager.service
 Type=oneshot
 EnvironmentFile=-/etc/default/pocketagent
 # Default: create ap0 on wlan0, override via /etc/default/pocketagent
-ExecStart=/bin/bash -lc '/sbin/iw dev "${POCKETAGENT_UPLINK_IFACE:-wlan0}" interface add "${POCKETAGENT_AP_IFACE:-ap0}" type __ap'
+# Idempotent: if ap0 exists already, do nothing.
+ExecStart=/bin/bash -lc 'AP_IFACE="${POCKETAGENT_AP_IFACE:-ap0}"; UPLINK="${POCKETAGENT_UPLINK_IFACE:-wlan0}"; /sbin/iw dev | grep -qE "Interface[[:space:]]+${AP_IFACE}\\b" || /sbin/iw dev "${UPLINK}" interface add "${AP_IFACE}" type __ap'
 ExecStart=/bin/bash -lc '/sbin/ip link set "${POCKETAGENT_AP_IFACE:-ap0}" up'
 RemainAfterExit=yes
 

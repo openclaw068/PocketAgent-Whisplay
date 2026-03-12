@@ -52,9 +52,31 @@ ap_iface_exists() {
   iw dev 2>/dev/null | grep -qE "Interface\s+$AP_IFACE\b"
 }
 
+ap_iface_type() {
+  # outputs: AP|managed|... (best effort)
+  iw dev 2>/dev/null | awk -v iface="$AP_IFACE" '
+    $1=="Interface" && $2==iface {in=1; next}
+    in && $1=="type" {print $2; exit}
+  '
+}
+
+delete_ap_iface() {
+  if ap_iface_exists; then
+    log "[wifi-ap] deleting existing interface $AP_IFACE"
+    iw dev "$AP_IFACE" del 2>>"$LOG_FILE" || true
+  fi
+}
+
 create_ap_iface() {
   if ap_iface_exists; then
-    return 0
+    local t
+    t="$(ap_iface_type || true)"
+    if [[ "$t" == "AP" ]]; then
+      return 0
+    fi
+
+    log "[wifi-ap] $AP_IFACE exists but type=$t (expected AP); recreating"
+    delete_ap_iface
   fi
 
   log "[wifi-ap] creating AP interface $AP_IFACE on $UPLINK_IFACE"
