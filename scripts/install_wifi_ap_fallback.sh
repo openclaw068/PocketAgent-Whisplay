@@ -24,8 +24,13 @@ main() {
   echo "[wifi-ap] Installing systemd unit + helper script..."
   install -m 0755 -D /opt/pocketagent/scripts/wifi_ap_fallback.sh /usr/local/bin/pocketagent-wifi-ap-fallback
   install -m 0644 -D /opt/pocketagent/systemd/pocketagent-wifi-ap-fallback.service /etc/systemd/system/pocketagent-wifi-ap-fallback.service
+  install -m 0644 -D /opt/pocketagent/systemd/pocketagent-ap-iface.service /etc/systemd/system/pocketagent-ap-iface.service
 
   systemctl daemon-reload
+
+  # Create the AP interface early at boot (needed for concurrent AP+client mode)
+  systemctl enable --now pocketagent-ap-iface || true
+
   systemctl enable --now pocketagent-wifi-ap-fallback
 
   echo "[wifi-ap] Done. When disconnected, connect your phone to SSID: PocketAgent-Setup"

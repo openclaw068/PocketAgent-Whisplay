@@ -1,0 +1,15 @@
+[Unit]
+Description=PocketAgent create virtual AP interface (ap0)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/pocketagent
+# Default: create ap0 on wlan0, override via /etc/default/pocketagent
+ExecStart=/bin/bash -lc '/sbin/iw dev "${POCKETAGENT_UPLINK_IFACE:-wlan0}" interface add "${POCKETAGENT_AP_IFACE:-ap0}" type __ap'
+ExecStart=/bin/bash -lc '/sbin/ip link set "${POCKETAGENT_AP_IFACE:-ap0}" up'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

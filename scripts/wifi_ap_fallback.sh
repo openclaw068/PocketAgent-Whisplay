@@ -8,7 +8,20 @@ set -euo pipefail
 # - Works headless (no GUI / no secret-agent prompts)
 # - Produces actionable logs when AP fails to start
 
-IFACE=${POCKETAGENT_WIFI_IFACE:-wlan0}
+# Uplink (internet) interface. Usually wlan0.
+UPLINK_IFACE=${POCKETAGENT_UPLINK_IFACE:-wlan0}
+
+# AP interface for the setup portal.
+# Recommended: a virtual AP interface (ap0) created on top of wlan0.
+AP_IFACE=${POCKETAGENT_AP_IFACE:-ap0}
+
+# Back-compat: if POCKETAGENT_WIFI_IFACE is set, treat it as the AP iface.
+AP_IFACE=${POCKETAGENT_WIFI_IFACE:-$AP_IFACE}
+
+# If true, always run the setup AP (even if uplink is connected).
+# Defaults to true when AP_IFACE != UPLINK_IFACE (concurrent mode).
+SETUP_AP_ALWAYS_ON=${POCKETAGENT_SETUP_AP_ALWAYS_ON:-}
+
 AP_SSID=${POCKETAGENT_SETUP_AP_SSID:-PocketAgent-Setup}
 AP_PASS=${POCKETAGENT_SETUP_AP_PASS:-pocketagent}
 AP_ADDR=${POCKETAGENT_SETUP_AP_ADDR:-192.168.4.1}
@@ -30,13 +43,41 @@ log() { echo "[$(ts)] $*" | tee -a "$LOG_FILE" >&2; }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
-connected() {
+uplink_connected() {
   # Prefer a stable definition: NM says the device is connected (100).
-  nmcli -t -f GENERAL.STATE dev show "$IFACE" 2>/dev/null | grep -qE ':100\b'
+  nmcli -t -f GENERAL.STATE dev show "$UPLINK_IFACE" 2>/dev/null | grep -qE ':100\b'
+}
+
+ap_iface_exists() {
+  iw dev 2>/dev/null | grep -qE "Interface\s+$AP_IFACE\b"
+}
+
+create_ap_iface() {
+  if ap_iface_exists; then
+    return 0
+  fi
+
+  log "[wifi-ap] creating AP interface $AP_IFACE on $UPLINK_IFACE"
+  if ! iw dev "$UPLINK_IFACE" interface add "$AP_IFACE" type __ap 2>>"$LOG_FILE"; then
+    log "[wifi-ap] ERROR: failed to create $AP_IFACE (driver may not support concurrent AP+client)"
+    return 1
+  fi
+  ip link set "$AP_IFACE" up || true
 }
 
 start_ap() {
-  log "[wifi-ap] starting setup AP on $IFACE"
+  # Decide default for always-on behavior.
+  if [[ -z "${SETUP_AP_ALWAYS_ON}" ]]; then
+    if [[ "$AP_IFACE" != "$UPLINK_IFACE" ]]; then
+      SETUP_AP_ALWAYS_ON=true
+    else
+      SETUP_AP_ALWAYS_ON=false
+    fi
+  fi
+
+  log "[wifi-ap] starting setup AP on $AP_IFACE (uplink=$UPLINK_IFACE always_on=$SETUP_AP_ALWAYS_ON)"
+
+  create_ap_iface || return 1
 
   if ! have_cmd hostapd; then
     log "[wifi-ap] ERROR: hostapd not found (install: sudo apt-get install -y hostapd)"
@@ -50,17 +91,17 @@ start_ap() {
   # Ensure Wi-Fi isn't soft-blocked
   rfkill unblock wifi >/dev/null 2>&1 || true
 
-  # Stop NM from managing the iface while we AP
-  nmcli dev disconnect "$IFACE" >/dev/null 2>&1 || true
+  # Stop NM from managing the AP iface while we AP
+  nmcli dev disconnect "$AP_IFACE" >/dev/null 2>&1 || true
 
-  ip link set "$IFACE" down || true
-  ip addr flush dev "$IFACE" || true
-  ip addr add "$AP_ADDR/$AP_MASK" dev "$IFACE" || true
-  ip link set "$IFACE" up || true
+  ip link set "$AP_IFACE" down || true
+  ip addr flush dev "$AP_IFACE" || true
+  ip addr add "$AP_ADDR/$AP_MASK" dev "$AP_IFACE" || true
+  ip link set "$AP_IFACE" up || true
 
   cat > "$HOSTAPD_CONF" <<EOF
 country_code=$AP_COUNTRY
-interface=$IFACE
+interface=$AP_IFACE
 driver=nl80211
 ssid=$AP_SSID
 hw_mode=g
@@ -75,7 +116,7 @@ rsn_pairwise=CCMP
 EOF
 
   cat > "$DNSMASQ_CONF" <<EOF
-interface=$IFACE
+interface=$AP_IFACE
 bind-interfaces
 dhcp-range=192.168.4.10,192.168.4.200,12h
 address=/#/$AP_ADDR
@@ -110,10 +151,10 @@ stop_ap() {
     fi
   done
 
-  ip addr flush dev "$IFACE" || true
+  ip addr flush dev "$AP_IFACE" || true
 
   # Let NetworkManager manage it again
-  nmcli dev connect "$IFACE" >/dev/null 2>&1 || true
+  nmcli dev connect "$AP_IFACE" >/dev/null 2>&1 || true
 }
 
 cleanup() {
@@ -121,22 +162,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log "[wifi-ap] service started (iface=$IFACE ssid=$AP_SSID addr=$AP_ADDR)"
+log "[wifi-ap] service started (uplink=$UPLINK_IFACE ap_iface=$AP_IFACE ssid=$AP_SSID addr=$AP_ADDR)"
 
 AP_RUNNING=0
 
 while true; do
-  if connected; then
-    if [[ $AP_RUNNING -eq 1 ]]; then
-      stop_ap
-      AP_RUNNING=0
-    fi
-  else
+  if [[ "${SETUP_AP_ALWAYS_ON:-}" == "true" ]]; then
+    # Always-on mode: keep the setup AP up even if uplink is connected.
     if [[ $AP_RUNNING -eq 0 ]]; then
       if start_ap; then
         AP_RUNNING=1
       else
         log "[wifi-ap] ERROR: start_ap failed; retrying in 5s"
+      fi
+    fi
+  else
+    # Fallback mode: only start AP when uplink is NOT connected.
+    if uplink_connected; then
+      if [[ $AP_RUNNING -eq 1 ]]; then
+        stop_ap
+        AP_RUNNING=0
+      fi
+    else
+      if [[ $AP_RUNNING -eq 0 ]]; then
+        if start_ap; then
+          AP_RUNNING=1
+        else
+          log "[wifi-ap] ERROR: start_ap failed; retrying in 5s"
+        fi
       fi
     fi
   fi

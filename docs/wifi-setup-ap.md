@@ -1,6 +1,10 @@
 # Setup AP fallback (offline Wi‑Fi provisioning)
 
-PocketAgent can run an always-on fallback "setup AP" when it is not connected to Wi‑Fi.
+PocketAgent can run a "setup AP" for Wi‑Fi provisioning.
+
+It supports two modes:
+- **Fallback mode (default):** Only starts the AP when the uplink is NOT connected.
+- **Always-on concurrent mode:** Keeps the AP up while also staying connected to an uplink (requires driver support for AP+client concurrency).
 
 ## Defaults
 
@@ -16,6 +20,19 @@ Set them locally on the Pi in `/etc/default/pocketagent`:
 ```bash
 POCKETAGENT_SETUP_AP_SSID=PocketAgent-Setup
 POCKETAGENT_SETUP_AP_PASS=pocketagent
+```
+
+### Concurrent mode settings (recommended for headless SSH access)
+
+```bash
+# Uplink interface (internet). Usually wlan0.
+POCKETAGENT_UPLINK_IFACE=wlan0
+
+# AP interface. Recommended: ap0 (created on top of wlan0).
+POCKETAGENT_AP_IFACE=ap0
+
+# Keep the setup AP up even if uplink is connected.
+POCKETAGENT_SETUP_AP_ALWAYS_ON=true
 ```
 
 Then restart:
