@@ -130,13 +130,36 @@ rsn_pairwise=CCMP
 EOF
 
   cat > "$DNSMASQ_CONF" <<EOF
+# Bind ONLY to the AP interface.
 interface=$AP_IFACE
 bind-interfaces
+
+# DHCP
+# - Provide addresses on the setup subnet
+# - Default gateway + DNS server = the PocketAgent AP IP
+#   (clients will resolve everything to AP_ADDR via the DNS rule below)
 dhcp-range=192.168.4.10,192.168.4.200,12h
+dhcp-option=option:router,$AP_ADDR
+dhcp-option=option:dns-server,$AP_ADDR
+
+# DNS captive behavior
+# Answer every query with the portal IP (helps captive portal pop)
 address=/#/$AP_ADDR
 EOF
 
   # Start services (foreground handled by systemd)
+  # Kill any prior PocketAgent dnsmasq instance (stale PID file)
+  if [[ -f /run/pocketagent-dnsmasq.pid ]]; then
+    kill "$(cat /run/pocketagent-dnsmasq.pid)" >/dev/null 2>&1 || true
+    rm -f /run/pocketagent-dnsmasq.pid
+  fi
+
+  # If another dnsmasq is already bound to our AP addr, we won't be able to serve DHCP.
+  # This is a common cause of "iPhone spinning" when joining the SSID.
+  if ss -H -lunp 2>/dev/null | grep -qE "\b${AP_ADDR}:53\b|\b${AP_ADDR}:67\b"; then
+    log "[wifi-ap] ERROR: dnsmasq port conflict on ${AP_ADDR} (53/67). Another process is bound; AP clients may fail to get DHCP."
+  fi
+
   dnsmasq -C "$DNSMASQ_CONF" -k >>"$LOG_FILE" 2>&1 &
   DNSMASQ_PID=$!
 

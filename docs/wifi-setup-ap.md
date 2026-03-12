@@ -52,3 +52,16 @@ sudo systemctl restart pocketagent-wifi-ap-fallback
 
 - The setup AP only starts when the device is **not connected** to Wi‑Fi.
 - Once the device reconnects to a known network, the setup AP stops automatically.
+
+### If your phone "spins" when trying to join
+
+That almost always means DHCP isn't working.
+
+Common causes:
+- Another `dnsmasq` (or DHCP server) is already running and bound to `192.168.4.1` / ports `53` (DNS) or `67` (DHCP).
+- The PocketAgent `dnsmasq` couldn't start. Check:
+  - `/opt/pocketagent/data/wifi_ap_fallback.log`
+  - `sudo ss -lunp | egrep ':(67|53)\b'`
+
+Fix:
+- Stop/disable the conflicting service (often `dnsmasq.service`) or change its bind interface.
