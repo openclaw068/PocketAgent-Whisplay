@@ -8,7 +8,7 @@ Type=oneshot
 EnvironmentFile=-/etc/default/pocketagent
 # Default: create ap0 on wlan0, override via /etc/default/pocketagent
 # Idempotent: if ap0 exists already, do nothing.
-ExecStart=/bin/bash -lc 'AP_IFACE="${POCKETAGENT_AP_IFACE:-ap0}"; UPLINK="${POCKETAGENT_UPLINK_IFACE:-wlan0}"; /sbin/iw dev | awk -v iface="${AP_IFACE}" '$1=="Interface" && $2==iface {found=1} END{exit found?0:1}' || /sbin/iw dev "${UPLINK}" interface add "${AP_IFACE}" type __ap'
+ExecStart=/bin/bash -lc 'AP_IFACE="${POCKETAGENT_AP_IFACE:-ap0}"; UPLINK="${POCKETAGENT_UPLINK_IFACE:-wlan0}"; /sbin/iw dev | grep -qE "^Interface[[:space:]]+${AP_IFACE}$" || /sbin/iw dev "${UPLINK}" interface add "${AP_IFACE}" type __ap'
 ExecStart=/bin/bash -lc 'AP_IFACE="${POCKETAGENT_AP_IFACE:-ap0}"; /sbin/ip link show "${AP_IFACE}" >/dev/null 2>&1 && /sbin/ip link set "${AP_IFACE}" up || true'
 RemainAfterExit=yes
 
