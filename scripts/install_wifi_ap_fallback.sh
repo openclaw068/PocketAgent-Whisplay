@@ -28,8 +28,10 @@ main() {
 
   systemctl daemon-reload
 
-  # Create the AP interface early at boot (needed for concurrent AP+client mode)
-  systemctl enable --now pocketagent-ap-iface || true
+  # Optional: concurrent AP+client mode needs a virtual AP interface.
+  # Leave this unit DISABLED by default (fallback mode doesn't need it).
+  # Enable manually if you set POCKETAGENT_AP_IFACE=ap0.
+  systemctl disable pocketagent-ap-iface >/dev/null 2>&1 || true
 
   systemctl enable --now pocketagent-wifi-ap-fallback
 

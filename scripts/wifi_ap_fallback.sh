@@ -12,15 +12,16 @@ set -euo pipefail
 UPLINK_IFACE=${POCKETAGENT_UPLINK_IFACE:-wlan0}
 
 # AP interface for the setup portal.
-# Recommended: a virtual AP interface (ap0) created on top of wlan0.
-AP_IFACE=${POCKETAGENT_AP_IFACE:-ap0}
+# Default: wlan0 (fallback mode: AP only when NOT connected).
+# Optional: set to ap0 (created on top of wlan0) for concurrent AP+client.
+AP_IFACE=${POCKETAGENT_AP_IFACE:-wlan0}
 
 # Back-compat: if POCKETAGENT_WIFI_IFACE is set, treat it as the AP iface.
 AP_IFACE=${POCKETAGENT_WIFI_IFACE:-$AP_IFACE}
 
 # If true, always run the setup AP (even if uplink is connected).
-# Defaults to true when AP_IFACE != UPLINK_IFACE (concurrent mode).
-SETUP_AP_ALWAYS_ON=${POCKETAGENT_SETUP_AP_ALWAYS_ON:-}
+# Default: false (fallback mode).
+SETUP_AP_ALWAYS_ON=${POCKETAGENT_SETUP_AP_ALWAYS_ON:-false}
 
 AP_SSID=${POCKETAGENT_SETUP_AP_SSID:-PocketAgent-Setup}
 AP_PASS=${POCKETAGENT_SETUP_AP_PASS:-pocketagent}
@@ -88,15 +89,6 @@ create_ap_iface() {
 }
 
 start_ap() {
-  # Decide default for always-on behavior.
-  if [[ -z "${SETUP_AP_ALWAYS_ON}" ]]; then
-    if [[ "$AP_IFACE" != "$UPLINK_IFACE" ]]; then
-      SETUP_AP_ALWAYS_ON=true
-    else
-      SETUP_AP_ALWAYS_ON=false
-    fi
-  fi
-
   log "[wifi-ap] starting setup AP on $AP_IFACE (uplink=$UPLINK_IFACE always_on=$SETUP_AP_ALWAYS_ON)"
 
   create_ap_iface || return 1
