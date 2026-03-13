@@ -19,6 +19,9 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
       'query_memory',
       'forget_memory',
 
+      // device status
+      'get_battery_status',
+
       'set_volume',
       'general_chat',
       'unknown'
@@ -81,6 +84,9 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     'For deleting reminders: if user says "delete/remove/cancel" a reminder, choose intent="delete_reminder" with the same target fields. ' +
     'For acknowledgements: if user indicates completion (done/complete/finished) and there is a recent reminder context, choose intent="ack_reminder" with ackTarget="latest". ' +
     'If the user says to complete a specific reminder by description, choose ackTarget="by_text" and set ackText to the short description (e.g., "trash"). ' +
+    'DEVICE STATUS RULES: ' +
+    'If the user asks about battery level, battery percent, battery status, charging, power, or whether it is plugged in, intent MUST be "get_battery_status". ' +
+
     'VOLUME RULES: ' +
     'If user says set volume to X percent, intent="set_volume" and set volumePercent=X. ' +
     'If user says volume up / turn it up / louder, intent="set_volume" and set volumeDirection="up". ' +

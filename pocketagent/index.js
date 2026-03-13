@@ -19,6 +19,7 @@ import { displayUpdate } from './display_client.js';
 import { SemanticMemory } from './semantic_memory.js';
 import { getWifiStatus } from './wifi_status.js';
 import { classifyMemoryUtterance } from './memory_nlu.js';
+import { getPisugarStatus } from './pisugar_client.js';
 
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || './data';
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -794,6 +795,31 @@ async function oneTurn({ abortSignal = null } = {}) {
         await say('Okay — which reminder do you mean?');
       }
       return;
+    } else if (routed?.intent === 'get_battery_status') {
+      try {
+        const st = await getPisugarStatus();
+        if (typeof st.percent !== 'number') {
+          await say("I can't read the battery right now. Is PiSugar Power Manager running?");
+          return;
+        }
+
+        const parts = [];
+        parts.push(`Battery is at ${Math.round(st.percent)} percent.`);
+
+        if (st.plugged === true) {
+          if (st.charging === true) parts.push('It looks like I am charging.');
+          else parts.push('I am plugged in.');
+        } else if (st.plugged === false) {
+          parts.push('I am on battery power.');
+        }
+
+        await say(parts.join(' '));
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] get_battery_status failed:', e?.message ?? e);
+        await say("I had trouble checking the battery. Check the logs.");
+        return;
+      }
     } else if (routed?.intent === 'set_volume') {
       // Support:
       // - absolute: "set volume to 60%"
