@@ -11,7 +11,7 @@ import { routeUtterance } from './router.js';
 import { loadJson, saveJson } from './store.js';
 // (openaiChat is imported above with whisperTranscribe/ttsToAudio)
 import { answerReminderQuery, selectRemindersForQuery } from './query.js';
-import { setVolumePercent, setVolumePercentRaw, getVolumeRaw, rawToPercent } from './volume.js';
+import { setVolumePercent, setVolumePercentRaw, nudgeVolumePercent, getVolumeRaw, rawToPercent } from './volume.js';
 import { startButtonWatcher } from './gpio_button.js';
 import { startWhisplayButtonWatcher } from './whisplay_button.js';
 import { bestReminderMatch } from './match.js';
@@ -827,6 +827,19 @@ async function oneTurn({ abortSignal = null } = {}) {
       }
 
       if (targetPct == null || Number.isNaN(targetPct)) {
+        // If we can't compute an absolute target (e.g. no raw mapping), still support
+        // simple "volume up/down" by nudging the ALSA control relatively.
+        if (!hasAbs && !hasDelta && (dir === 'up' || dir === 'down') && !DEFAULTS.alsaVolumeRawControl) {
+          const delta = (dir === 'up' ? step : -step);
+          await nudgeVolumePercent({
+            card: DEFAULTS.alsaCard,
+            control: DEFAULTS.alsaVolumeControl,
+            deltaPercent: delta
+          });
+          await say(`Okay — volume ${dir === 'up' ? 'up' : 'down'} ${step} percent.`);
+          return;
+        }
+
         await say('Tell me a percent, like “set volume to 60 percent.”');
         return;
       }

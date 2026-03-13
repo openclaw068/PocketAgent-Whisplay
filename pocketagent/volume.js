@@ -50,6 +50,20 @@ export async function listControls({ card = null }) {
   return out;
 }
 
+// Relative volume nudge when we don't have a stable raw mapping.
+// Uses amixer's built-in relative syntax: e.g. "5%+" / "5%-".
+export async function nudgeVolumePercent({ card = null, control = 'Speaker', deltaPercent = 5 }) {
+  const d = Number(deltaPercent);
+  const step = Math.max(0, Math.min(100, Math.round(Math.abs(d))));
+  const rel = `${step}%${d >= 0 ? '+' : '-'}`;
+
+  const args = [];
+  if (card !== null && card !== undefined) args.push('-c', String(card));
+  args.push('sset', control, rel);
+  await run('amixer', args);
+  return { deltaPercent: d >= 0 ? step : -step };
+}
+
 export async function getVolumeRaw({ card = null, control = 'Playback' }) {
   const args = [];
   if (card !== null && card !== undefined) args.push('-c', String(card));
