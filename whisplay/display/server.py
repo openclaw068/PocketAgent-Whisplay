@@ -335,13 +335,14 @@ def render_frame(s: dict, t: float):
 
     if pct is not None:
         pct = max(0, min(100, pct))
-        # Battery outline box
-        bx, by = (W - 58, 14)
-        bw, bh = (34, 16)
+        # Battery outline box (tuned to align with Wi‑Fi bars)
+        # Slightly smaller and nudged down/right.
+        bx, by = (W - 52, 16)
+        bw, bh = (30, 14)
         # main body
         d.rounded_rectangle((bx, by, bx + bw, by + bh), radius=4, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
         # cap
-        d.rounded_rectangle((bx + bw, by + 5, bx + bw + 4, by + 11), radius=2, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
+        d.rounded_rectangle((bx + bw, by + 4, bx + bw + 4, by + 10), radius=2, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
 
         # fill
         inner_pad = 3
@@ -357,18 +358,18 @@ def render_frame(s: dict, t: float):
         pct_text = f"{pct}%"
         if _FONT_STATUS is not None:
             tw = d.textlength(pct_text, font=_FONT_STATUS)
-            d.text((bx - 6 - tw, by - 1), pct_text, font=_FONT_STATUS, fill=(255, 255, 255, 235))
+            d.text((bx - 5 - tw, by - 2), pct_text, font=_FONT_STATUS, fill=(255, 255, 255, 235))
 
         # small bolt overlay when charging
         if plugged and charging:
             # simple lightning bolt shape inside battery
             bolt = [
-                (bx + 15, by + 3),
-                (bx + 11, by + 9),
-                (bx + 16, by + 9),
-                (bx + 12, by + 14),
-                (bx + 22, by + 7),
-                (bx + 17, by + 7),
+                (bx + 13, by + 2),
+                (bx + 10, by + 8),
+                (bx + 14, by + 8),
+                (bx + 11, by + 12),
+                (bx + 19, by + 6),
+                (bx + 15, by + 6),
             ]
             d.polygon(bolt, fill=(255, 255, 255, 220))
 
