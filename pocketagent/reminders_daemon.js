@@ -87,9 +87,15 @@ function followupFromDefaults(spec, defaults) {
 function normalizeTimeText(s) {
   return String(s || '')
     .trim()
+    // normalize punctuation variants: "a.m." -> "am", "p.m." -> "pm"
     .replace(/\b([ap])\s*\.?\s*m\.?\b/gi, (_, ap) => `${ap.toLowerCase()}m`)
+    // drop day words that shouldn't affect time parsing
+    .replace(/\b(today)\b/gi, '')
+    // drop leftover periods
     .replace(/\./g, '')
+    // collapse whitespace
     .replace(/\s+/g, ' ')
+    // strip common filler
     .replace(/^at\s+/i, '')
     .trim();
 }
