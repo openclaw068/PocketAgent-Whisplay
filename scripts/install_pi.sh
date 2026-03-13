@@ -23,6 +23,17 @@ if [[ -z "$OPENAI_KEY" ]]; then
   exit 1
 fi
 
+# Optional: Tailscale
+# - Set POCKETAGENT_INSTALL_TAILSCALE=true to enable non-interactively.
+# - If unset, installer will prompt.
+INSTALL_TAILSCALE_RAW="${POCKETAGENT_INSTALL_TAILSCALE:-}"
+INSTALL_TAILSCALE=""
+if [[ -n "$INSTALL_TAILSCALE_RAW" ]]; then
+  INSTALL_TAILSCALE="${INSTALL_TAILSCALE_RAW}"
+else
+  read -r -p "Install Tailscale for remote access? (y/N): " INSTALL_TAILSCALE
+fi
+
 apt-get update
 apt-get install -y --no-install-recommends \
   git \
@@ -34,6 +45,18 @@ apt-get install -y --no-install-recommends \
   python3 \
   python3-pil \
   python3-spidev
+
+# ---- Optional: Tailscale install (remote access) ----
+# We install Tailscale via the official script and enable the service.
+# Auth (tailscale up) is intentionally left to the user because it requires a one-time login key / interactive auth.
+INSTALL_TAILSCALE_NORM=$(echo "${INSTALL_TAILSCALE:-}" | tr '[:upper:]' '[:lower:]')
+if [[ "${INSTALL_TAILSCALE_NORM}" == "y" || "${INSTALL_TAILSCALE_NORM}" == "yes" || "${INSTALL_TAILSCALE_NORM}" == "true" || "${INSTALL_TAILSCALE_NORM}" == "1" ]]; then
+  echo "[install_pi] Installing Tailscale…"
+  apt-get install -y --no-install-recommends curl
+  curl -fsSL https://tailscale.com/install.sh | sh
+  systemctl enable --now tailscaled || true
+  echo "[install_pi] Tailscale installed. Next: sudo tailscale up"
+fi
 
 # Node.js: install Node 20+ via NodeSource if missing.
 if ! command -v node >/dev/null 2>&1; then
