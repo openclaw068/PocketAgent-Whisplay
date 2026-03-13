@@ -337,7 +337,7 @@ def render_frame(s: dict, t: float):
         pct = max(0, min(100, pct))
         # Battery outline box (tuned to align with Wi‑Fi bars)
         # Slightly smaller and nudged down/right.
-        bx, by = (W - 48, 18)
+        bx, by = (W - 45, 21)
         bw, bh = (30, 14)
         # main body
         d.rounded_rectangle((bx, by, bx + bw, by + bh), radius=4, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
