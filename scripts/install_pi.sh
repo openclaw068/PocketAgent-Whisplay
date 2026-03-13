@@ -90,80 +90,13 @@ usermod -aG audio,gpio "$USER_NAME" || true
 # IMPORTANT: systemd EnvironmentFile expects ONE KEY=VALUE per line.
 # If the file already exists, preserve it (do not clobber a working device config).
 if [[ ! -f /etc/default/pocketagent ]]; then
-  cat >/etc/default/pocketagent <<EOF
-# PocketAgent environment (ONE KEY=VALUE per line)
-#
-# Required:
-OPENAI_API_KEY="${OPENAI_KEY}"
+  # Use versioned template tracked in repo.
+  # Write placeholder first, then fill in OPENAI_API_KEY.
+  install -m 600 -o root -g root "$APP_DIR/config/pocketagent.env.example" /etc/default/pocketagent
 
-# Mode:
-# - chat = neutral voice agent (press-to-talk per turn)
-# - reminders = reminder specialist
-POCKETAGENT_MODE=chat
-
-# Audio devices (card indices may vary across boots; update if needed)
-POCKETAGENT_RECORDING_DEVICE=plughw:0,0
-POCKETAGENT_PLAYBACK_DEVICE=plughw:0,0
-
-# Volume control defaults (WM8960-friendly)
-POCKETAGENT_ALSA_CARD=0
-POCKETAGENT_ALSA_VOLUME_RAW_CONTROL=Playback
-POCKETAGENT_ALSA_VOLUME_RAW_MIN=200
-POCKETAGENT_ALSA_VOLUME_RAW_MAX=255
-
-# Volume step for "volume up/down"
-POCKETAGENT_VOLUME_STEP_PERCENT=5
-
-# Whisplay HAT push-to-talk button (physical pin 11 = GPIO17)
-# (some gpiod builds want chip number, not name)
-POCKETAGENT_GPIO_CHIP=0
-POCKETAGENT_PTT_GPIO_LINE=17
-# Whisplay button is typically active-high (pressed = HIGH)
-POCKETAGENT_PTT_ACTIVE_LOW=false
-
-# Button stability (debounce/bounce)
-POCKETAGENT_PTT_MIN_HOLD_MS=600
-POCKETAGENT_PTT_DEBOUNCE_MS=80
-POCKETAGENT_PTT_COOLDOWN_MS=200
-
-# Optional: disable the "hold the button" spoken prompt
-POCKETAGENT_PROMPT_ON_PRESS=false
-
-# TTS speed (1.0 = normal). Try 1.2 for slightly faster speech.
-POCKETAGENT_TTS_SPEED=1.2
-
-# Chat mode memory carryover (persist last N messages between restarts)
-POCKETAGENT_CHAT_CARRYOVER_COUNT=10
-
-# Reminders daemon (local)
-POCKETAGENT_REMINDERS_HOST=127.0.0.1
-POCKETAGENT_REMINDERS_PORT=3791
-
-# Chat agent local notify endpoint (reminders daemon POSTs here when due)
-POCKETAGENT_NOTIFY_HOST=127.0.0.1
-POCKETAGENT_NOTIFY_PORT=3781
-# If you change host/port, also set:
-# POCKETAGENT_NOTIFY_URL=http://127.0.0.1:3781/notify
-
-# Display sidecar (Whisplay LCD)
-POCKETAGENT_DISPLAY_HOST=127.0.0.1
-POCKETAGENT_DISPLAY_PORT=3782
-# Modes: auto|whisplay|stdout|off
-POCKETAGENT_DISPLAY_MODE=auto
-
-# Sleep after N seconds of idle inactivity (backlight only). 0 disables.
-POCKETAGENT_DISPLAY_SLEEP_SECS=15
-
-# Use vendored driver by default (prevents GPIO17 contention w/ PocketAgent)
-WHISPLAY_DRIVER_PATH=/opt/pocketagent/whisplay/driver
-
-# Optional hands-free chat (can be flaky on some ALSA stacks):
-# POCKETAGENT_CHAT_AUTO_LISTEN=true
-# POCKETAGENT_CHAT_AUTO_LISTEN_MAX_TURNS=5
-# POCKETAGENT_AUTO_LISTEN_SECONDS=6
-# POCKETAGENT_AUTO_LISTEN_DELAY_MS=2000
-# POCKETAGENT_AUTO_LISTEN_RECORD_RETRIES=20
-EOF
+  # Replace placeholder with key (escape backslashes/quotes)
+  esc_key=$(printf '%s' "$OPENAI_KEY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  sed -i "s/^OPENAI_API_KEY=\"sk-REPLACE_ME\"/OPENAI_API_KEY=\"${esc_key}\"/" /etc/default/pocketagent
 else
   echo "[install_pi] /etc/default/pocketagent exists; preserving it (not overwriting)."
 fi
