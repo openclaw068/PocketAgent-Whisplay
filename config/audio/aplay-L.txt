@@ -1,18 +1,49 @@
 null
     Discard all samples (playback) or generate zero samples (capture)
+lavrate
+    Rate Converter Plugin Using Libav/FFmpeg Library
+samplerate
+    Rate Converter Plugin Using Samplerate Library
+speexrate
+    Rate Converter Plugin Using Speex Resampler
+jack
+    JACK Audio Connection Kit
+oss
+    Open Sound System
+pulse
+    PulseAudio Sound Server
+speex
+    Plugin using Speex DSP (resample, agc, denoise, echo, dereverb)
+upmix
+    Plugin for channel upmix (4,6,8)
+vdownmix
+    Plugin for channel downmix (stereo) with a simple spacialization
 default
+playback
+capture
+dmixed
+array
+hw:CARD=wm8960soundcard,DEV=0
+    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
+    Direct hardware device without any conversions
+plughw:CARD=wm8960soundcard,DEV=0
+    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
+    Hardware device with all software conversions
+sysdefault:CARD=wm8960soundcard
+    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
     Default Audio Device
-sysdefault
-    Default Audio Device
+dmix:CARD=wm8960soundcard,DEV=0
+    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
+    Direct sample mixing device
+usbstream:CARD=wm8960soundcard
+    wm8960-soundcard
+    USB Stream Output
 hw:CARD=vc4hdmi,DEV=0
     vc4-hdmi, MAI PCM i2s-hifi-0
     Direct hardware device without any conversions
 plughw:CARD=vc4hdmi,DEV=0
     vc4-hdmi, MAI PCM i2s-hifi-0
     Hardware device with all software conversions
-default:CARD=vc4hdmi
-    vc4-hdmi, MAI PCM i2s-hifi-0
-    Default Audio Device
 sysdefault:CARD=vc4hdmi
     vc4-hdmi, MAI PCM i2s-hifi-0
     Default Audio Device
@@ -22,18 +53,6 @@ hdmi:CARD=vc4hdmi,DEV=0
 dmix:CARD=vc4hdmi,DEV=0
     vc4-hdmi, MAI PCM i2s-hifi-0
     Direct sample mixing device
-hw:CARD=wm8960soundcard,DEV=0
-    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
-    Direct hardware device without any conversions
-plughw:CARD=wm8960soundcard,DEV=0
-    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
-    Hardware device with all software conversions
-default:CARD=wm8960soundcard
-    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
-    Default Audio Device
-sysdefault:CARD=wm8960soundcard
-    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
-    Default Audio Device
-dmix:CARD=wm8960soundcard,DEV=0
-    wm8960-soundcard, bcm2835-i2s-wm8960-hifi wm8960-hifi-0
-    Direct sample mixing device
+usbstream:CARD=vc4hdmi
+    vc4-hdmi
+    USB Stream Output
