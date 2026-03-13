@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { DEFAULTS } from './config.js';
 import { recordToWav, playWav, runHook } from './audio.js';
 import { whisperTranscribe, ttsToAudio, chat as openaiChat, embed } from './openai.js';
@@ -183,6 +184,15 @@ async function say(text) {
     });
     const out = path.join(DATA_DIR, 'tts.wav');
     fs.writeFileSync(out, audio);
+    // Repair WAV header quirks (we've seen invalid length fields that cause quiet/distorted playback).
+    // Re-encode in-place via sox to ensure a clean PCM WAV container.
+    try {
+      // Requires: sudo apt-get install -y sox
+      execFileSync('sox', [out, '-r', '24000', '-c', '1', '-b', '16', out + '.fixed.wav']);
+      fs.renameSync(out + '.fixed.wav', out);
+    } catch (e) {
+      console.warn('[PocketAgent] sox wav-fix failed (continuing):', e?.message || e);
+    }
 
     // Quick sanity check to avoid blasting static if the provider returns MP3/etc.
     if (!audio?.slice?.(0, 4)?.equals?.(Buffer.from('RIFF')) && !(contentType || '').includes('wav')) {
