@@ -337,7 +337,7 @@ def render_frame(s: dict, t: float):
         pct = max(0, min(100, pct))
         # Battery outline box (tuned to align with Wi‑Fi bars)
         # Slightly smaller and nudged down/right.
-        bx, by = (W - 45, 21)
+        bx, by = (W - 45, 22)
         bw, bh = (30, 14)
         # main body
         d.rounded_rectangle((bx, by, bx + bw, by + bh), radius=4, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
@@ -347,18 +347,18 @@ def render_frame(s: dict, t: float):
         # fill
         inner_pad = 3
         fill_w = int((bw - 2 * inner_pad) * (pct / 100.0))
-        fill_col = (120, 255, 160, 220) if pct > 20 else (255, 210, 120, 220) if pct > 10 else (255, 140, 140, 230)
+        # Color rules:
+        # - green: >= 20%
+        # - yellow: < 20%
+        # - red: < 10%
+        fill_col = (255, 140, 140, 230) if pct < 10 else (255, 210, 120, 220) if pct < 20 else (120, 255, 160, 220)
         d.rounded_rectangle(
             (bx + inner_pad, by + inner_pad, bx + inner_pad + max(1, fill_w), by + bh - inner_pad),
             radius=3,
             fill=fill_col,
         )
 
-        # percent text to the left of the icon
-        pct_text = f"{pct}%"
-        if _FONT_STATUS is not None:
-            tw = d.textlength(pct_text, font=_FONT_STATUS)
-            d.text((bx - 5 - tw, by - 2), pct_text, font=_FONT_STATUS, fill=(255, 255, 255, 235))
+        # (no percent text — not enough room; icon only)
 
         # small bolt overlay when charging
         if plugged and charging:
