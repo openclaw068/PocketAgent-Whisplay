@@ -1,0 +1,18 @@
+[Unit]
+Description=PocketAgent PiSugar Monitor (battery + display)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pocketagent
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/default/pocketagent
+ExecStart=/usr/bin/node /opt/pocketagent/pocketagent/pisugar_monitor_daemon.js
+Restart=on-failure
+RestartSec=2
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

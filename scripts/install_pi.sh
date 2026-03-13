@@ -110,10 +110,12 @@ chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent.service > /etc/systemd/system/pocketagent.service
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-reminders.service > /etc/systemd/system/pocketagent-reminders.service
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-display.service > /etc/systemd/system/pocketagent-display.service
+sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-pisugar-monitor.service > /etc/systemd/system/pocketagent-pisugar-monitor.service
 systemctl daemon-reload
 systemctl enable pocketagent
 systemctl enable pocketagent-reminders
 systemctl enable pocketagent-display
+systemctl enable pocketagent-pisugar-monitor
 
 echo "\nInstall complete. Next:"
 echo "1) Edit /etc/default/pocketagent and set OPENAI_API_KEY=..."

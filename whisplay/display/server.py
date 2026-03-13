@@ -92,6 +92,10 @@ state = {
     # Optional wifi indicator (if set by the agent)
     # wifi: { rssiDbm: -50, bars: 3, ssid: "IoT" }
     "wifi": None,
+
+    # Optional battery indicator (if set by the agent)
+    # battery: { percent: 73, charging: false, plugged: true }
+    "battery": None,
 }
 
 # Animation settings
@@ -319,6 +323,54 @@ def render_frame(s: dict, t: float):
     # If not connected, draw a slash through the bars
     if not connected:
         d.line((x0 - 2, y0 + 14, x0 + 4 * (bar_w + gap), y0 - 2), fill=(255, 255, 255, 200), width=3)
+
+    # battery indicator (top-right)
+    bat = s.get("battery") or {}
+    try:
+        pct = int(round(float(bat.get("percent")))) if bat.get("percent") is not None else None
+    except Exception:
+        pct = None
+    plugged = bool(bat.get("plugged"))
+    charging = bool(bat.get("charging"))
+
+    if pct is not None:
+        pct = max(0, min(100, pct))
+        # Battery outline box
+        bx, by = (W - 58, 14)
+        bw, bh = (34, 16)
+        # main body
+        d.rounded_rectangle((bx, by, bx + bw, by + bh), radius=4, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
+        # cap
+        d.rounded_rectangle((bx + bw, by + 5, bx + bw + 4, by + 11), radius=2, outline=(255, 255, 255, 220), width=2, fill=(0, 0, 0, 0))
+
+        # fill
+        inner_pad = 3
+        fill_w = int((bw - 2 * inner_pad) * (pct / 100.0))
+        fill_col = (120, 255, 160, 220) if pct > 20 else (255, 210, 120, 220) if pct > 10 else (255, 140, 140, 230)
+        d.rounded_rectangle(
+            (bx + inner_pad, by + inner_pad, bx + inner_pad + max(1, fill_w), by + bh - inner_pad),
+            radius=3,
+            fill=fill_col,
+        )
+
+        # percent text to the left of the icon
+        pct_text = f"{pct}%"
+        if _FONT_STATUS is not None:
+            tw = d.textlength(pct_text, font=_FONT_STATUS)
+            d.text((bx - 6 - tw, by - 1), pct_text, font=_FONT_STATUS, fill=(255, 255, 255, 235))
+
+        # small bolt overlay when charging
+        if plugged and charging:
+            # simple lightning bolt shape inside battery
+            bolt = [
+                (bx + 15, by + 3),
+                (bx + 11, by + 9),
+                (bx + 16, by + 9),
+                (bx + 12, by + 14),
+                (bx + 22, by + 7),
+                (bx + 17, by + 7),
+            ]
+            d.polygon(bolt, fill=(255, 255, 255, 220))
 
     # status pill
     label = (status or "idle").upper()
