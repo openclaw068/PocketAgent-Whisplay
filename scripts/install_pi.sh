@@ -111,6 +111,9 @@ POCKETAGENT_ALSA_VOLUME_RAW_CONTROL=Playback
 POCKETAGENT_ALSA_VOLUME_RAW_MIN=200
 POCKETAGENT_ALSA_VOLUME_RAW_MAX=255
 
+# Volume step for "volume up/down"
+POCKETAGENT_VOLUME_STEP_PERCENT=5
+
 # Whisplay HAT push-to-talk button (physical pin 11 = GPIO17)
 # (some gpiod builds want chip number, not name)
 POCKETAGENT_GPIO_CHIP=0
