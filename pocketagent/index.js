@@ -1498,30 +1498,51 @@ if (PTT_MODE === 'stdin') {
   let inTurn = false;
   let controller = null;
   let pressAtMs = 0;
+  let holdTimer = null;
 
+  // Tap vs hold behavior:
+  // - Quick tap: ONLY wake the display (no recording, no reminder state machine)
+  // - Hold: start a voice turn after HOLD_TO_TALK_MS
+  const HOLD_TO_TALK_MS = Number(process.env.POCKETAGENT_HOLD_TO_TALK_MS ?? 350);
   const MIN_HOLD_MS = Number(process.env.POCKETAGENT_PTT_MIN_HOLD_MS ?? 600);
 
-const watcher = (PTT_MODE === 'whisplay') ? startWhisplayButtonWatcher() : startButtonWatcher();
+  const watcher = (PTT_MODE === 'whisplay') ? startWhisplayButtonWatcher() : startButtonWatcher();
   watcher
     .onPress(() => {
       if (inTurn) return;
-      inTurn = true;
       pressAtMs = Date.now();
-      controller = new AbortController();
-      // Start recording immediately; stop when release aborts.
-      void safeOneTurn(controller.signal).finally(() => {
-        // Small cooldown reduces edge-chatter / accidental immediate retriggers
-        setTimeout(() => {
-          inTurn = false;
-          controller = null;
-          pressAtMs = 0;
-        }, Number(process.env.POCKETAGENT_PTT_COOLDOWN_MS ?? 200));
-      });
+
+      // Wake display immediately on any press.
+      try { void displayUpdate({ status: 'idle' }); } catch {}
+
+      // Do NOT start recording yet. Wait to see if this is a hold.
+      holdTimer = setTimeout(() => {
+        if (inTurn) return;
+        inTurn = true;
+        controller = new AbortController();
+
+        // Start recording; release will abort.
+        void safeOneTurn(controller.signal).finally(() => {
+          setTimeout(() => {
+            inTurn = false;
+            controller = null;
+            pressAtMs = 0;
+          }, Number(process.env.POCKETAGENT_PTT_COOLDOWN_MS ?? 200));
+        });
+      }, Math.max(0, HOLD_TO_TALK_MS));
     })
     .onRelease(() => {
-      // Stop recording when user releases button.
-      // Some buttons bounce and can emit a release edge almost immediately after press.
-      // Enforce a minimum hold time before we abort arecord.
+      // If user released before we started a turn, it's a tap: do nothing else.
+      if (!inTurn) {
+        if (holdTimer) {
+          try { clearTimeout(holdTimer); } catch {}
+          holdTimer = null;
+        }
+        pressAtMs = 0;
+        return;
+      }
+
+      // If we *did* start a turn, stop recording when user releases button.
       const elapsed = pressAtMs ? (Date.now() - pressAtMs) : Infinity;
       const delay = Math.max(0, MIN_HOLD_MS - elapsed);
       if (delay > 0) {
