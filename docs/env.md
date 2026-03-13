@@ -1,0 +1,118 @@
+# PocketAgent-Whisplay — Environment file reference
+
+This repo uses an environment file at:
+
+- `/etc/default/pocketagent`
+
+Systemd units load it via `EnvironmentFile=-/etc/default/pocketagent`.
+
+## Starting restore point
+
+On a fresh device, start by copying the template:
+
+```bash
+sudo install -m 600 -o root -g root /opt/pocketagent/config/pocketagent.env.example /etc/default/pocketagent
+```
+
+Then edit `/etc/default/pocketagent` to set:
+- `OPENAI_API_KEY`
+- audio device/card settings if needed
+- optional display + PiSugar settings
+
+> Note: `scripts/install_pi.sh` will create `/etc/default/pocketagent` only if it does not already exist.
+
+---
+
+## Reference contents (example)
+
+Below is a known-good starting point. Keep it in sync with `config/pocketagent.env.example`.
+
+```ini
+# PocketAgent environment (ONE KEY=VALUE per line)
+# Copy to /etc/default/pocketagent (chmod 600) or use the installer.
+#
+# Required:
+OPENAI_API_KEY="sk-REPLACE_ME"
+
+# Mode:
+# - chat = neutral voice agent (press-to-talk per turn)
+# - reminders = reminder specialist
+POCKETAGENT_MODE=chat
+
+# Audio devices (card indices may vary across boots)
+POCKETAGENT_RECORDING_DEVICE=plughw:0,0
+POCKETAGENT_PLAYBACK_DEVICE=plughw:0,0
+
+# Volume control defaults (WM8960-friendly)
+POCKETAGENT_ALSA_CARD=0
+POCKETAGENT_ALSA_VOLUME_RAW_CONTROL=Playback
+POCKETAGENT_ALSA_VOLUME_RAW_MIN=200
+POCKETAGENT_ALSA_VOLUME_RAW_MAX=255
+
+# Volume step for "volume up/down"
+POCKETAGENT_VOLUME_STEP_PERCENT=5
+
+# Whisplay HAT push-to-talk button (physical pin 11 = GPIO17)
+POCKETAGENT_GPIO_CHIP=0
+POCKETAGENT_PTT_GPIO_LINE=17
+POCKETAGENT_PTT_ACTIVE_LOW=false
+
+# Button stability (debounce/bounce)
+POCKETAGENT_PTT_MIN_HOLD_MS=600
+POCKETAGENT_PTT_DEBOUNCE_MS=80
+POCKETAGENT_PTT_COOLDOWN_MS=200
+
+# Optional: disable the "hold the button" spoken prompt
+POCKETAGENT_PROMPT_ON_PRESS=false
+
+# Tap vs hold:
+# - tap: wake display only
+# - hold: start voice turn
+POCKETAGENT_HOLD_TO_TALK_MS=350
+
+# TTS speed (1.0 = normal). Try 1.2 for slightly faster speech.
+POCKETAGENT_TTS_SPEED=1.2
+
+# Chat mode memory carryover (persist last N messages between restarts)
+POCKETAGENT_CHAT_CARRYOVER_COUNT=10
+
+# Reminders daemon (local)
+POCKETAGENT_REMINDERS_HOST=127.0.0.1
+POCKETAGENT_REMINDERS_PORT=3791
+
+# Chat agent local notify endpoint (reminders daemon POSTs here when due)
+POCKETAGENT_NOTIFY_HOST=127.0.0.1
+POCKETAGENT_NOTIFY_PORT=3781
+
+# Display sidecar (Whisplay LCD)
+POCKETAGENT_DISPLAY_HOST=127.0.0.1
+POCKETAGENT_DISPLAY_PORT=3782
+# Modes: auto|whisplay|stdout|off
+POCKETAGENT_DISPLAY_MODE=auto
+
+# Background image + transparency
+# Default background path (if unset) is /opt/pocketagent/whisplay/display/assets/hyperion.jpg
+# You can override to any local JPG/PNG path.
+# POCKETAGENT_DISPLAY_BG_IMAGE=/opt/pocketagent/whisplay/display/assets/hyperion.jpg
+# Darken background overlay (0-255). Higher = darker = easier to read text.
+POCKETAGENT_DISPLAY_BG_DARKEN=70
+# UI alpha (0-255)
+POCKETAGENT_DISPLAY_FACE_ALPHA=235
+POCKETAGENT_DISPLAY_BUBBLE_ALPHA=240
+POCKETAGENT_DISPLAY_OUTLINE_ALPHA=220
+
+# Sleep after N seconds of idle inactivity (backlight only). 0 disables.
+POCKETAGENT_DISPLAY_SLEEP_SECS=15
+
+# PiSugar (pisugar-server) integration
+POCKETAGENT_PISUGAR_HOST=127.0.0.1
+POCKETAGENT_PISUGAR_PORT=8423
+POCKETAGENT_BATTERY_POLL_SECS=30
+POCKETAGENT_BATTERY_WARN_1=20
+POCKETAGENT_BATTERY_WARN_2=10
+# Only warn when on battery (not plugged). You asked for no warnings on power.
+POCKETAGENT_BATTERY_WARN_ONLY_ON_BATTERY=true
+
+# Use vendored driver by default (prevents GPIO17 contention w/ PocketAgent)
+WHISPLAY_DRIVER_PATH=/opt/pocketagent/whisplay/driver
+```
