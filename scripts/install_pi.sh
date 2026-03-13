@@ -10,11 +10,25 @@ USER_NAME="${SUDO_USER:-pi}"
 REPO_URL="${POCKETAGENT_REPO_URL:-https://github.com/openclaw068/PocketAgent-Whisplay.git}"
 WHISPLAY_DRIVER_DIR="/opt/Whisplay"
 
+# --- Secrets / required config ---
+# Prefer OPENAI_API_KEY passed inline (non-interactive). Otherwise prompt.
+OPENAI_KEY="${OPENAI_API_KEY:-}"
+if [[ -z "$OPENAI_KEY" ]]; then
+  read -rs -p "Enter OPENAI_API_KEY (input hidden): " OPENAI_KEY
+  echo ""
+fi
+if [[ -z "$OPENAI_KEY" ]]; then
+  echo "ERROR: OPENAI_API_KEY is required." >&2
+  echo "Tip: OPENAI_API_KEY=\"sk-...\" sudo bash scripts/install_pi.sh" >&2
+  exit 1
+fi
+
 apt-get update
 apt-get install -y --no-install-recommends \
   git \
   ca-certificates \
   alsa-utils \
+  sox \
   gpiod \
   libgpiod2 \
   python3 \
@@ -72,24 +86,30 @@ done
 # Ensure service user can access audio + gpio
 usermod -aG audio,gpio "$USER_NAME" || true
 
-# Lock down env file location for secrets (user should add OPENAI_API_KEY here)
+# Lock down env file location for secrets
 # IMPORTANT: systemd EnvironmentFile expects ONE KEY=VALUE per line.
-cat >/etc/default/pocketagent <<'EOF'
+# If the file already exists, preserve it (do not clobber a working device config).
+if [[ ! -f /etc/default/pocketagent ]]; then
+  cat >/etc/default/pocketagent <<EOF
 # PocketAgent environment (ONE KEY=VALUE per line)
-# IMPORTANT: systemd EnvironmentFile will NOT parse multiple vars on one line.
 #
 # Required:
-# Tip: wrap the key in double-quotes to avoid rare parsing issues.
-OPENAI_API_KEY="sk-REPLACE_ME"
+OPENAI_API_KEY="${OPENAI_KEY}"
 
 # Mode:
 # - chat = neutral voice agent (press-to-talk per turn)
 # - reminders = reminder specialist
 POCKETAGENT_MODE=chat
 
-# Recommended on WM8960/ULTRA++ (Bookworm often has a broken ALSA default device)
-POCKETAGENT_RECORDING_DEVICE=plughw:1,0
-POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
+# Audio devices (card indices may vary across boots; update if needed)
+POCKETAGENT_RECORDING_DEVICE=plughw:0,0
+POCKETAGENT_PLAYBACK_DEVICE=plughw:0,0
+
+# Volume control defaults (WM8960-friendly)
+POCKETAGENT_ALSA_CARD=0
+POCKETAGENT_ALSA_VOLUME_RAW_CONTROL=Playback
+POCKETAGENT_ALSA_VOLUME_RAW_MIN=200
+POCKETAGENT_ALSA_VOLUME_RAW_MAX=255
 
 # Whisplay HAT push-to-talk button (physical pin 11 = GPIO17)
 # (some gpiod builds want chip number, not name)
@@ -141,6 +161,9 @@ WHISPLAY_DRIVER_PATH=/opt/pocketagent/whisplay/driver
 # POCKETAGENT_AUTO_LISTEN_DELAY_MS=2000
 # POCKETAGENT_AUTO_LISTEN_RECORD_RETRIES=20
 EOF
+else
+  echo "[install_pi] /etc/default/pocketagent exists; preserving it (not overwriting)."
+fi
 
 chown root:root /etc/default/pocketagent
 chmod 600 /etc/default/pocketagent
