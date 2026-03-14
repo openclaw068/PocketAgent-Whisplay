@@ -93,20 +93,22 @@ function followupFromSpec(spec) {
   const dQuiet = d.quietHours ?? { start: 23, end: 7 };
 
   if (!spec || spec.kind === 'use_default') {
-    if (d.mode === 'once') return { followupEveryMin: null };
+    if (d.mode === 'once' || d.mode === 'ask') return { followupEveryMin: null, followupMode: d.mode };
     return {
       followupEveryMin: d.everyMin ?? 15,
       followupMaxCount: d.maxCount ?? null,
-      followupQuietHours: dQuiet
+      followupQuietHours: dQuiet,
+      followupMode: d.mode
     };
   }
 
   // custom
-  if (spec.everyMin === null) return { followupEveryMin: null };
+  if (spec.everyMin === null) return { followupEveryMin: null, followupMode: 'once' };
   return {
     followupEveryMin: Number(spec.everyMin ?? (d.everyMin ?? 15)),
     followupMaxCount: spec.maxCount ?? null,
-    followupQuietHours: spec.quietHours ?? dQuiet
+    followupQuietHours: spec.quietHours ?? dQuiet,
+    followupMode: 'repeat'
   };
 }
 
@@ -440,7 +442,7 @@ startNotifyServer();
   if (!enabled) return;
 
   const iface = process.env.POCKETAGENT_WIFI_IFACE || 'wlan0';
-  const intervalMs = Number(process.env.POCKETAGENT_WIFI_POLL_MS ?? 15000);
+  const intervalMs = Number(process.env.POCKETAGENT_WIFI_POLL_MS ?? 60000);
 
   const tick = async () => {
     try {
@@ -564,7 +566,20 @@ async function oneTurn({ abortSignal = null } = {}) {
     if (runtime.state.lastNotifiedReminderId && isAck(text || '')) {
       const id = runtime.state.lastNotifiedReminderId;
       console.log('[PocketAgent] ack latest (fast-path):', { id, heard: String(text || '').trim() });
-      await remindersPost('/reminders/ack', { id });
+      try {
+        const all = await remindersGet('/reminders/all');
+        const cur = (all?.json?.reminders || []).find(x => x.id === id);
+        if (cur?.isRecurring && cur.rrule) {
+          const { nextFromRRule } = await import('./recurrence.js');
+          const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+          if (nextDueAtIso) await remindersPost('/reminders/ack_and_reschedule', { id, nextDueAtIso });
+          else await remindersPost('/reminders/ack', { id });
+        } else {
+          await remindersPost('/reminders/ack', { id });
+        }
+      } catch {
+        await remindersPost('/reminders/ack', { id });
+      }
       await say('Nice — I’ll mark that as done.');
       return;
     }
@@ -605,6 +620,23 @@ async function oneTurn({ abortSignal = null } = {}) {
       runtime.state._routedIntent = null;
 
       if (r1.intent === 'ack_by_id' && r1.id) {
+        // If recurring, reschedule to the next occurrence.
+        try {
+          const all = await remindersGet('/reminders/all');
+          const cur = (all?.json?.reminders || []).find(x => x.id === r1.id);
+          if (cur?.isRecurring && cur.rrule) {
+            const { nextFromRRule } = await import('./recurrence.js');
+            const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+            if (nextDueAtIso) {
+              await remindersPost('/reminders/ack_and_reschedule', { id: r1.id, nextDueAtIso });
+              await say(r1.say || 'Done.');
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('[PocketAgent] recurring reschedule failed:', e?.message ?? e);
+        }
+
         await remindersPost('/reminders/ack', { id: r1.id });
         await say(r1.say || 'Done.');
         return;
@@ -628,11 +660,11 @@ async function oneTurn({ abortSignal = null } = {}) {
         // IMPORTANT: some intents (like completing reminder creation) require follow-on actions
         // after the user confirms. Don't return early before we persist.
         if (r1.intent === 'set_followup' && runtime.state.collected) {
-          const { reminderText, timeText, followupSpec } = runtime.state.collected;
+          const { reminderText, timeText, followupSpec, recurrence } = runtime.state.collected;
           runtime.state.collected = null;
 
-          console.log('[PocketAgent] saving reminder via daemon:', { reminderText, timeText, followupSpec });
-          const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec });
+          console.log('[PocketAgent] saving reminder via daemon:', { reminderText, timeText, followupSpec, recurrence });
+          const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec, recurrence });
           console.log('[PocketAgent] /reminders/add response:', { status: r?.status, ok: r?.json?.ok, json: r?.json ?? null, raw: r?.raw ?? null });
 
           if (r?.json?.ok) {
@@ -733,12 +765,13 @@ async function oneTurn({ abortSignal = null } = {}) {
     if (routed?.intent === 'create_reminder') {
       // Kick off the existing reminder creation flow.
       // If timeText was provided, we can skip ask_time and go straight to followup collection.
+      const recurrence = routed.recurrence ?? null;
       if (routed.timeText) {
-        runtime.state.pending = { kind: 'ask_followup', reminderText: routed.reminderText || text, timeText: routed.timeText };
+        runtime.state.pending = { kind: 'ask_followup', reminderText: routed.reminderText || text, timeText: routed.timeText, recurrence };
         await say(`Okay — ${routed.timeText}. If I remind you and you don’t respond, how should I handle follow-ups?`);
         return;
       }
-      runtime.state.pending = { kind: 'ask_time', reminderText: routed.reminderText || text };
+      runtime.state.pending = { kind: 'ask_time', reminderText: routed.reminderText || text, recurrence };
       await say('Sure — what time should I remind you?');
       return;
     }
@@ -995,12 +1028,15 @@ async function oneTurn({ abortSignal = null } = {}) {
       // Handle defaults updates
       if (r1.intent === 'update_defaults' && r1.defaultsPatch) {
         const p = r1.defaultsPatch;
-        runtime.state.defaults.followup.mode = p.mode === 'once' ? 'once' : 'repeat';
+        runtime.state.defaults.followup.mode = p.mode === 'once' ? 'once' : (p.mode === 'ask' ? 'ask' : 'repeat');
         if (runtime.state.defaults.followup.mode === 'repeat') {
           if (p.everyMin != null) runtime.state.defaults.followup.everyMin = Number(p.everyMin);
           runtime.state.defaults.followup.maxCount = p.maxCount ?? null;
           if (p.quietHours) runtime.state.defaults.followup.quietHours = p.quietHours;
+        } else if (runtime.state.defaults.followup.mode === 'once') {
+          runtime.state.defaults.followup.maxCount = null;
         } else {
+          // ask mode
           runtime.state.defaults.followup.maxCount = null;
         }
         saveJson(defaultsPath, runtime.state.defaults);
@@ -1008,11 +1044,11 @@ async function oneTurn({ abortSignal = null } = {}) {
 
       // If we just collected a full reminder
       if (r1.intent === 'set_followup' && runtime.state.collected) {
-        const { reminderText, timeText, followupSpec } = runtime.state.collected;
+        const { reminderText, timeText, followupSpec, recurrence } = runtime.state.collected;
         runtime.state.collected = null;
 
-        console.log('[PocketAgent] saving reminder via daemon:', { reminderText, timeText, followupSpec });
-        const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec });
+        console.log('[PocketAgent] saving reminder via daemon:', { reminderText, timeText, followupSpec, recurrence });
+        const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec, recurrence });
         console.log('[PocketAgent] /reminders/add response:', { status: r?.status, ok: r?.json?.ok, json: r?.json ?? null, raw: r?.raw ?? null });
 
         if (r?.json?.ok) {
@@ -1029,7 +1065,25 @@ async function oneTurn({ abortSignal = null } = {}) {
       // Ack latest reminder (from notification context)
       if (r1.intent === 'ack_latest') {
         const id = runtime.state.lastNotifiedReminderId;
-        if (id) await remindersPost('/reminders/ack', { id });
+        if (id) {
+          try {
+            const all = await remindersGet('/reminders/all');
+            const cur = (all?.json?.reminders || []).find(x => x.id === id);
+            if (cur?.isRecurring && cur.rrule) {
+              const { nextFromRRule } = await import('./recurrence.js');
+              const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+              if (nextDueAtIso) {
+                await remindersPost('/reminders/ack_and_reschedule', { id, nextDueAtIso });
+              } else {
+                await remindersPost('/reminders/ack', { id });
+              }
+            } else {
+              await remindersPost('/reminders/ack', { id });
+            }
+          } catch {
+            await remindersPost('/reminders/ack', { id });
+          }
+        }
         if (r1.say) {
           await say(r1.say);
         }
@@ -1038,6 +1092,23 @@ async function oneTurn({ abortSignal = null } = {}) {
 
       // Ack explicit reminder id (from confirm_ack pending flow)
       if (r1.intent === 'ack_by_id' && r1.id) {
+        // If recurring, reschedule to the next occurrence.
+        try {
+          const all = await remindersGet('/reminders/all');
+          const cur = (all?.json?.reminders || []).find(x => x.id === r1.id);
+          if (cur?.isRecurring && cur.rrule) {
+            const { nextFromRRule } = await import('./recurrence.js');
+            const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+            if (nextDueAtIso) {
+              await remindersPost('/reminders/ack_and_reschedule', { id: r1.id, nextDueAtIso });
+              if (r1.say) await say(r1.say);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('[PocketAgent] recurring reschedule failed:', e?.message ?? e);
+        }
+
         await remindersPost('/reminders/ack', { id: r1.id });
         if (r1.say) await say(r1.say);
         return;
@@ -1241,12 +1312,15 @@ async function oneTurn({ abortSignal = null } = {}) {
 
   if (result.intent === 'update_defaults' && result.defaultsPatch) {
     const p = result.defaultsPatch;
-    runtime.state.defaults.followup.mode = p.mode === 'once' ? 'once' : 'repeat';
+    runtime.state.defaults.followup.mode = p.mode === 'once' ? 'once' : (p.mode === 'ask' ? 'ask' : 'repeat');
     if (runtime.state.defaults.followup.mode === 'repeat') {
       if (p.everyMin != null) runtime.state.defaults.followup.everyMin = Number(p.everyMin);
       runtime.state.defaults.followup.maxCount = p.maxCount ?? null;
       if (p.quietHours) runtime.state.defaults.followup.quietHours = p.quietHours;
+    } else if (runtime.state.defaults.followup.mode === 'once') {
+      runtime.state.defaults.followup.maxCount = null;
     } else {
+      // ask mode
       runtime.state.defaults.followup.maxCount = null;
     }
 
@@ -1256,7 +1330,9 @@ async function oneTurn({ abortSignal = null } = {}) {
     const quiet = d.quietHours ? `${d.quietHours.start}:00 to ${d.quietHours.end}:00` : 'no quiet hours';
     const summary = d.mode === 'once'
       ? `Got it. Default follow-ups set to just once.`
-      : `Got it. Default follow-ups: every ${d.everyMin ?? 15} minutes, max ${d.maxCount ?? 'no limit'}, quiet hours ${quiet}.`;
+      : (d.mode === 'ask'
+        ? `Got it. Default follow-ups set to ask once when a reminder is due.`
+        : `Got it. Default follow-ups: every ${d.everyMin ?? 15} minutes, max ${d.maxCount ?? 'no limit'}, quiet hours ${quiet}.`);
 
     await say(summary);
     return;
@@ -1266,8 +1342,8 @@ async function oneTurn({ abortSignal = null } = {}) {
 
   // If we just collected a full reminder
   if (result.intent === 'set_followup' && runtime.state.collected) {
-    const { reminderText, timeText, followupSpec } = runtime.state.collected;
-    const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec });
+    const { reminderText, timeText, followupSpec, recurrence } = runtime.state.collected;
+    const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec, recurrence });
     runtime.state.collected = null;
     if (r?.json?.ok) {
       void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });

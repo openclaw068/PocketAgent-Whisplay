@@ -2,6 +2,18 @@ import { chat } from './openai.js';
 
 async function parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText }) {
   // Returns a structured follow-up policy (or "use default") extracted from natural language.
+  // Fast-path: avoid LLM calls for common short phrases.
+  const t0 = String(userText || '').trim().toLowerCase();
+  if (!t0) return { kind: 'use_default' };
+  if (/(\bdefault\b|\busual\b)/.test(t0)) return { kind: 'use_default' };
+  if (/(\bno\s+follow\b|\bdon'?t\s+follow\b|\bjust\s+once\b|\bonce\b|\bno\s+repeat\b)/.test(t0)) {
+    return { kind: 'custom', everyMin: null, maxCount: null, quietHours: null };
+  }
+  {
+    const m = t0.match(/\bevery\s+(\d+)\s*(min|mins|minute|minutes)\b/);
+    if (m) return { kind: 'custom', everyMin: Number(m[1]), maxCount: null, quietHours: null };
+  }
+
   const schemaHint = {
     kind: 'use_default | custom',
     everyMin: 'number|null',
@@ -30,7 +42,7 @@ async function parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText }) {
     return JSON.parse(content);
   } catch {
     // heuristic fallback
-    const t = userText.toLowerCase();
+    const t = t0;
     if (t.includes('default')) return { kind: 'use_default' };
     if (t.includes('once')) return { kind: 'custom', everyMin: null, maxCount: null, quietHours: null };
     const m = t.match(/every\s+(\d+)\s*(min|mins|minute|minutes)/);
@@ -151,7 +163,7 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
         say: `Okay — how do you want me to handle follow-ups if you don’t respond?`,
         state: {
           ...state,
-          pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: state.pending.timeText }
+          pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: state.pending.timeText, recurrence: state.pending.recurrence ?? null }
         }
       };
     }
@@ -199,7 +211,7 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
       intent: 'set_time',
       timeText: t,
       say: `Okay — ${t}. If I remind you and you don’t respond, how should I handle follow-ups?`,
-      state: { ...state, pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: t } }
+      state: { ...state, pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: t, recurrence: state.pending.recurrence ?? null } }
     };
   }
 
@@ -211,7 +223,7 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
         intent: 'set_time',
         timeText: t,
         say: `Okay — ${t}. If I remind you and you don’t respond, how should I handle follow-ups?`,
-        state: { ...state, pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: t } }
+        state: { ...state, pending: { kind: 'ask_followup', reminderText: state.pending.reminderText, timeText: t, recurrence: state.pending.recurrence ?? null } }
       };
     }
 
@@ -230,7 +242,8 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
           collected: {
             reminderText: state.pending.reminderText,
             timeText: state.pending.timeText,
-            followupSpec: spec
+            followupSpec: spec,
+            recurrence: state.pending.recurrence ?? null
           }
         }
       };
@@ -248,7 +261,8 @@ export async function handleUtterance({ baseUrl, apiKeyEnv, model, text, state }
         collected: {
           reminderText: state.pending.reminderText,
           timeText: state.pending.timeText,
-          followupSpec: spec
+          followupSpec: spec,
+          recurrence: state.pending.recurrence ?? null
         }
       }
     };

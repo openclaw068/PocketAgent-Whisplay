@@ -52,12 +52,14 @@ export class ReminderEngine {
       timezone: reminder.timezone ?? null,
 
       // follow-up policy
+      followupMode: reminder.followupMode ?? null, // ask|once|repeat|null
       followupEveryMin: reminder.followupEveryMin ?? null,
       followupMaxCount: reminder.followupMaxCount ?? null,
       followupQuietHours: reminder.followupQuietHours ?? { start: 23, end: 7 },
       followupCount: 0,
       lastNotifiedAtIso: null,
-      acknowledgedAtIso: null
+      acknowledgedAtIso: null,
+      followupAskedAtIso: null
     };
     this.state.reminders.push(r);
     this.save();
@@ -73,6 +75,7 @@ export class ReminderEngine {
     if (patch.text != null) r.text = String(patch.text);
     if (patch.dueAtIso != null) r.dueAtIso = String(patch.dueAtIso);
 
+    if (patch.followupMode !== undefined) r.followupMode = patch.followupMode;
     if (patch.followupEveryMin !== undefined) r.followupEveryMin = patch.followupEveryMin === null ? null : Number(patch.followupEveryMin);
     if (patch.followupMaxCount !== undefined) r.followupMaxCount = patch.followupMaxCount === null ? null : Number(patch.followupMaxCount);
     if (patch.followupQuietHours !== undefined) r.followupQuietHours = patch.followupQuietHours;
@@ -80,6 +83,7 @@ export class ReminderEngine {
     // Reset follow-up counters if relevant settings changed
     r.followupCount = 0;
     r.lastNotifiedAtIso = null;
+    r.followupAskedAtIso = null;
 
     this.save();
     this._scheduleReminder(r);
@@ -138,6 +142,13 @@ export class ReminderEngine {
         continue;
       }
 
+      // If overdue and ask-mode already asked, do NOT re-notify on restart.
+      if (!Number.isNaN(dueMs) && dueMs <= now && r.followupMode === 'ask' && r.followupAskedAtIso) {
+        // still ensure the base job is scheduled (in case dueAtIso is updated later)
+        this._scheduleReminder(r);
+        continue;
+      }
+
       this._scheduleReminder(r);
 
       // If already notified and followups are enabled, resume followup loop based on lastNotifiedAt.
@@ -173,12 +184,21 @@ export class ReminderEngine {
   async _fire(id) {
     const r = this.state.reminders.find(x => x.id === id);
     if (!r || r.status !== 'open') return;
-    r.lastNotifiedAtIso = new Date().toISOString();
+
+    const nowIso = new Date().toISOString();
+    r.lastNotifiedAtIso = nowIso;
+
+    // ask-mode: we want a single prompt after due, and then never repeat followups.
+    // We track that we already asked so restarts don't re-ask.
+    if (r.followupMode === 'ask' && !r.followupAskedAtIso) {
+      r.followupAskedAtIso = nowIso;
+    }
+
     this.save();
     await this.notifyFn?.(r, { kind: 'due' });
 
-    // schedule follow-ups as separate timers
-    if (r.followupEveryMin && r.followupEveryMin > 0) {
+    // schedule follow-ups as separate timers (repeat mode only)
+    if (r.followupEveryMin && r.followupEveryMin > 0 && r.followupMode !== 'ask') {
       this._scheduleFollowup(r);
     }
   }

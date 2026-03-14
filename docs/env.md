@@ -62,6 +62,9 @@ POCKETAGENT_PTT_MIN_HOLD_MS=600
 POCKETAGENT_PTT_DEBOUNCE_MS=80
 POCKETAGENT_PTT_COOLDOWN_MS=200
 
+# Wi‑Fi indicator polling interval (ms)
+POCKETAGENT_WIFI_POLL_MS=60000
+
 # Optional: disable the "hold the button" spoken prompt
 POCKETAGENT_PROMPT_ON_PRESS=false
 
@@ -90,6 +93,10 @@ POCKETAGENT_DISPLAY_PORT=3782
 # Modes: auto|whisplay|stdout|off
 POCKETAGENT_DISPLAY_MODE=auto
 
+# Reduce idle refresh to save CPU/battery (active anims still render at active FPS).
+POCKETAGENT_DISPLAY_FPS_ACTIVE=10
+POCKETAGENT_DISPLAY_FPS_IDLE=0.5
+
 # Background image + transparency
 # Default background path (if unset) is /opt/pocketagent/whisplay/display/assets/hyperion.jpg
 # You can override to any local JPG/PNG path.
@@ -107,7 +114,7 @@ POCKETAGENT_DISPLAY_SLEEP_SECS=15
 # PiSugar (pisugar-server) integration
 POCKETAGENT_PISUGAR_HOST=127.0.0.1
 POCKETAGENT_PISUGAR_PORT=8423
-POCKETAGENT_BATTERY_POLL_SECS=30
+POCKETAGENT_BATTERY_POLL_SECS=60
 POCKETAGENT_BATTERY_WARN_1=20
 POCKETAGENT_BATTERY_WARN_2=10
 # Only warn when on battery (not plugged). You asked for no warnings on power.

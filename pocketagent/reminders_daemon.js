@@ -68,19 +68,21 @@ function followupFromDefaults(spec, defaults) {
   const dQuiet = d.quietHours ?? { start: 23, end: 7 };
 
   if (!spec || spec.kind === 'use_default') {
-    if (d.mode === 'once') return { followupEveryMin: null };
+    if (d.mode === 'once' || d.mode === 'ask') return { followupEveryMin: null, followupMode: d.mode };
     return {
       followupEveryMin: d.everyMin ?? 15,
       followupMaxCount: d.maxCount ?? null,
-      followupQuietHours: dQuiet
+      followupQuietHours: dQuiet,
+      followupMode: d.mode
     };
   }
 
-  if (spec.everyMin === null) return { followupEveryMin: null };
+  if (spec.everyMin === null) return { followupEveryMin: null, followupMode: 'once' };
   return {
     followupEveryMin: Number(spec.everyMin ?? (d.everyMin ?? 15)),
     followupMaxCount: spec.maxCount ?? null,
-    followupQuietHours: spec.quietHours ?? dQuiet
+    followupQuietHours: spec.quietHours ?? dQuiet,
+    followupMode: 'repeat'
   };
 }
 
@@ -138,7 +140,7 @@ const state = {
   defaults: loadJson(defaultsPath, {
     timezone: DEFAULTS.timezone,
     followup: {
-      mode: 'ask',
+      mode: 'ask', // ask|once|repeat
       everyMin: 15,
       maxCount: null,
       quietHours: { start: 23, end: 7 }
@@ -167,12 +169,15 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const p = body?.defaultsPatch || {};
 
-      state.defaults.followup.mode = p.mode === 'once' ? 'once' : 'repeat';
+      state.defaults.followup.mode = p.mode === 'once' ? 'once' : (p.mode === 'ask' ? 'ask' : 'repeat');
       if (state.defaults.followup.mode === 'repeat') {
         if (p.everyMin != null) state.defaults.followup.everyMin = Number(p.everyMin);
         state.defaults.followup.maxCount = p.maxCount ?? null;
         if (p.quietHours) state.defaults.followup.quietHours = p.quietHours;
+      } else if (state.defaults.followup.mode === 'once') {
+        state.defaults.followup.maxCount = null;
       } else {
+        // ask mode: no repeating followups, but prompt the user once when due
         state.defaults.followup.maxCount = null;
       }
 
@@ -191,7 +196,14 @@ const server = http.createServer(async (req, res) => {
 
       const dueAtIso = parseDue(timeText);
       const follow = followupFromDefaults(followupSpec, state.defaults);
-      const r = engine.add({ id: newId(), text: reminderText, dueAtIso, ...follow });
+
+      // recurrence (optional)
+      const recurrence = body?.recurrence ?? null;
+      const isRecurring = recurrence?.kind === 'rrule' && typeof recurrence?.rrule === 'string' && recurrence.rrule.trim();
+      const rrule = isRecurring ? String(recurrence.rrule).trim() : null;
+      const timezone = isRecurring ? String(recurrence.timezone || state.defaults.timezone || '').trim() : null;
+
+      const r = engine.add({ id: newId(), text: reminderText, dueAtIso, ...follow, isRecurring: !!isRecurring, rrule, timezone });
       return json(res, 200, { ok: true, reminder: r });
     }
 
@@ -200,6 +212,19 @@ const server = http.createServer(async (req, res) => {
       const id = String(body?.id || '').trim();
       if (!id) return json(res, 400, { ok: false, error: 'missing id' });
       const r = engine.acknowledge(id);
+      return json(res, 200, { ok: true, reminder: r });
+    }
+
+    if (req.method === 'POST' && u.pathname === '/reminders/ack_and_reschedule') {
+      const body = await readJson(req);
+      const id = String(body?.id || '').trim();
+      const nextDueAtIso = String(body?.nextDueAtIso || '').trim();
+      if (!id) return json(res, 400, { ok: false, error: 'missing id' });
+      if (!nextDueAtIso) return json(res, 400, { ok: false, error: 'missing nextDueAtIso' });
+
+      const r0 = engine.acknowledge(id);
+      if (!r0) return json(res, 404, { ok: false, error: 'not found' });
+      const r = engine.update(id, { dueAtIso: nextDueAtIso });
       return json(res, 200, { ok: true, reminder: r });
     }
 
