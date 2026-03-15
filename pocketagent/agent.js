@@ -4,14 +4,61 @@ async function parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText }) {
   // Returns a structured follow-up policy (or "use default") extracted from natural language.
   // Fast-path: avoid LLM calls for common short phrases.
   const t0 = String(userText || '').trim().toLowerCase();
+
+  const numberWords = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    fifteen: 15,
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fortyfive: 45,
+    'forty-five': 45,
+    sixty: 60
+  };
+
+  const parseEveryMin = (t) => {
+    // supports: "every 5 minutes", "every five minutes", "every hour", "hourly", "every half hour"
+    const s = String(t || '').trim().toLowerCase();
+    if (!s) return null;
+
+    if (/\b(hourly|every\s+hour)\b/.test(s)) return 60;
+    if (/\b(half\s+hour|every\s+half\s+hour)\b/.test(s)) return 30;
+
+    let m = s.match(/\bevery\s+(\d+)\s*(min|mins|minute|minutes)\b/);
+    if (m) return Number(m[1]);
+
+    m = s.match(/\bevery\s+([a-z-]+)\s*(min|mins|minute|minutes)\b/);
+    if (m) {
+      const w = m[1];
+      const n = numberWords[w] ?? NaN;
+      if (Number.isFinite(n) && n > 0) return Number(n);
+    }
+
+    return null;
+  };
+
   if (!t0) return { kind: 'use_default' };
   if (/(\bdefault\b|\busual\b)/.test(t0)) return { kind: 'use_default' };
   if (/(\bno\s+follow\b|\bdon'?t\s+follow\b|\bjust\s+once\b|\bonce\b|\bno\s+repeat\b)/.test(t0)) {
     return { kind: 'custom', everyMin: null, maxCount: null, quietHours: null };
   }
+
   {
-    const m = t0.match(/\bevery\s+(\d+)\s*(min|mins|minute|minutes)\b/);
-    if (m) return { kind: 'custom', everyMin: Number(m[1]), maxCount: null, quietHours: null };
+    const everyMin = parseEveryMin(t0);
+    if (everyMin != null) return { kind: 'custom', everyMin, maxCount: null, quietHours: null };
   }
 
   const schemaHint = {
