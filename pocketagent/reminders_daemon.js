@@ -106,14 +106,41 @@ function parseDue(timeText) {
   const now = new Date();
   const t = normalizeTimeText(timeText).toLowerCase();
 
-  // Relative times: "in 5 minutes", "in one minute", "in an hour"
-  let m = t.match(/^in\s+(a|an|one|\d+)\s+(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs)\b/);
+  // Relative times: "in 5 minutes", "in one minute", "in an hour", "in two hours"
+  // Support small number-words because STT often outputs them.
+  const numberWords = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+  };
+
+  let m = t.match(/^in\s+([a-z]+|\d+)\s+(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs)\b/);
   if (m) {
     const nRaw = m[1];
     const unit = m[2];
-    const n = (nRaw === 'a' || nRaw === 'an' || nRaw === 'one') ? 1 : Number(nRaw);
-    const mult = unit.startsWith('hour') || unit.startsWith('hr') ? 3600_000 : unit.startsWith('sec') ? 1000 : 60_000;
-    return new Date(Date.now() + n * mult).toISOString();
+    const n = /^[0-9]+$/.test(nRaw)
+      ? Number(nRaw)
+      : (numberWords[nRaw] ?? NaN);
+
+    if (Number.isFinite(n) && n > 0) {
+      const mult = unit.startsWith('hour') || unit.startsWith('hr')
+        ? 3600_000
+        : unit.startsWith('sec')
+          ? 1000
+          : 60_000;
+      return new Date(Date.now() + n * mult).toISOString();
+    }
   }
 
   // Absolute-ish times: "7am", "tomorrow 7am"
