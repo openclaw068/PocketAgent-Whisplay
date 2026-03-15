@@ -39,5 +39,9 @@ export const DEFAULTS = {
   alsaVolumeRawMax: Number(process.env.POCKETAGENT_ALSA_VOLUME_RAW_MAX ?? 255),
 
   // If true, prefer offline TTS when available (Piper). On Pi Zero 2W, this may be too slow/limited.
-  preferOfflineTts: (process.env.POCKETAGENT_PREFER_OFFLINE_TTS || '').toLowerCase() === 'true'
+  preferOfflineTts: (process.env.POCKETAGENT_PREFER_OFFLINE_TTS || '').toLowerCase() === 'true',
+
+  // Battery: Wi‑Fi burst mode (turn Wi‑Fi on only during cloud calls)
+  wifiBurst: (process.env.POCKETAGENT_WIFI_BURST || 'false').toLowerCase() === 'true',
+  wifiIface: process.env.POCKETAGENT_WIFI_IFACE || 'wlan0'
 };

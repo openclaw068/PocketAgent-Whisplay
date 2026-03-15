@@ -18,6 +18,7 @@ import { bestReminderMatch } from './match.js';
 import { displayUpdate } from './display_client.js';
 import { SemanticMemory } from './semantic_memory.js';
 import { getWifiStatus } from './wifi_status.js';
+import { wifiOn, wifiOff } from './wifi_power.js';
 import { classifyMemoryUtterance } from './memory_nlu.js';
 import { getPisugarStatus } from './pisugar_client.js';
 
@@ -548,15 +549,32 @@ async function oneTurn({ abortSignal = null } = {}) {
       return;
     }
 
-  const text = await whisperTranscribe({
-    baseUrl,
-    apiKeyEnv,
-    audioPath: wavPath,
-    model: DEFAULTS.whisperModel,
-    prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
-    language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
-    responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
-  });
+  // Battery: optional Wi‑Fi burst mode for cloud calls (STT, chat, embeddings, TTS)
+  const wifiBurst = !!DEFAULTS.wifiBurst;
+  const wifiIface = DEFAULTS.wifiIface || 'wlan0';
+
+  if (wifiBurst) {
+    void displayUpdate({ status: 'wifi', line1: 'PocketAgent', line2: 'Connecting Wi‑Fi…' });
+    await wifiOn({ iface: wifiIface, timeoutMs: Number(process.env.POCKETAGENT_WIFI_ON_TIMEOUT_MS ?? 12000) });
+  }
+
+  let text = '';
+  try {
+    text = await whisperTranscribe({
+      baseUrl,
+      apiKeyEnv,
+      audioPath: wavPath,
+      model: DEFAULTS.whisperModel,
+      prompt: process.env.POCKETAGENT_WHISPER_PROMPT || null,
+      language: process.env.POCKETAGENT_WHISPER_LANGUAGE || null,
+      responseFormat: process.env.POCKETAGENT_WHISPER_RESPONSE_FORMAT || 'json'
+    });
+  } finally {
+    if (wifiBurst) {
+      await wifiOff({ iface: wifiIface });
+    }
+  }
+
   console.log('Heard:', text);
   void displayUpdate({ status: 'transcribing', line1: 'You', line2: String(text || '').slice(0, 160) });
 
