@@ -30,21 +30,93 @@ async function parseFollowupSpec({ baseUrl, apiKeyEnv, model, userText }) {
   };
 
   const parseEveryMin = (t) => {
-    // supports: "every 5 minutes", "every five minutes", "every hour", "hourly", "every half hour"
-    const s = String(t || '').trim().toLowerCase();
-    if (!s) return null;
+    // Goal: catch as many natural follow-up phrases as possible WITHOUT needing the LLM.
+    // Examples we want to support:
+    // - "every 5 minutes", "every five minutes", "every few minutes"
+    // - "in 10 minutes" (interpreted as follow up cadence)
+    // - "ping me again in 10", "nudge me in 15"
+    // - "keep reminding me", "keep bugging me", "blow me up" (fallback to default cadence)
+    // - "hourly", "every hour", "every half hour"
+    const s0 = String(t || '').trim().toLowerCase();
+    if (!s0) return null;
 
-    if (/\b(hourly|every\s+hour)\b/.test(s)) return 60;
-    if (/\b(half\s+hour|every\s+half\s+hour)\b/.test(s)) return 30;
+    // Normalize punctuation and filler
+    const s = s0
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    let m = s.match(/\bevery\s+(\d+)\s*(min|mins|minute|minutes)\b/);
-    if (m) return Number(m[1]);
+    // Direct intents: hourly / half-hourly
+    if (/\b(hourly|every\s+hour|each\s+hour|once\s+an\s+hour)\b/.test(s)) return 60;
+    if (/\b(half\s+hour|every\s+half\s+hour|each\s+half\s+hour|every\s+30\s+minutes)\b/.test(s)) return 30;
 
-    m = s.match(/\bevery\s+([a-z-]+)\s*(min|mins|minute|minutes)\b/);
-    if (m) {
-      const w = m[1];
-      const n = numberWords[w] ?? NaN;
-      if (Number.isFinite(n) && n > 0) return Number(n);
+    // Common shorthand
+    if (/\b(q\s*\d+)\b/.test(s)) {
+      // q15 -> every 15
+      const m = s.match(/\bq\s*(\d+)\b/);
+      if (m) return Number(m[1]);
+    }
+
+    // "every few mins" / "every couple mins"
+    if (/\bevery\s+few\s+(min|mins|minute|minutes)\b/.test(s)) return 5;
+    if (/\bevery\s+couple\s+(min|mins|minute|minutes)\b/.test(s)) return 2;
+
+    // "every X minutes" where X is digits
+    {
+      const m = s.match(/\b(?:every|each)\s+(\d+)\s*(min|mins|minute|minutes)\b/);
+      if (m) return Number(m[1]);
+    }
+
+    // "every five minutes" where X is word
+    {
+      const m = s.match(/\b(?:every|each)\s+([a-z-]+)\s*(min|mins|minute|minutes)\b/);
+      if (m) {
+        const w = m[1];
+        const n = numberWords[w] ?? NaN;
+        if (Number.isFinite(n) && n > 0) return Number(n);
+      }
+    }
+
+    // "in 10 minutes" / "in ten minutes" (treat as cadence)
+    {
+      const m = s.match(/\bin\s+(\d+)\s*(min|mins|minute|minutes)\b/);
+      if (m) return Number(m[1]);
+    }
+    {
+      const m = s.match(/\bin\s+([a-z-]+)\s*(min|mins|minute|minutes)\b/);
+      if (m) {
+        const w = m[1];
+        const n = numberWords[w] ?? NaN;
+        if (Number.isFinite(n) && n > 0) return Number(n);
+      }
+    }
+
+    // "in 2 hours" for follow-up cadence (rare but plausible)
+    {
+      const m = s.match(/\bin\s+(\d+)\s*(hour|hours|hr|hrs)\b/);
+      if (m) return Number(m[1]) * 60;
+    }
+    {
+      const m = s.match(/\bin\s+([a-z-]+)\s*(hour|hours|hr|hrs)\b/);
+      if (m) {
+        const w = m[1];
+        const n = numberWords[w] ?? NaN;
+        if (Number.isFinite(n) && n > 0) return Number(n) * 60;
+      }
+    }
+
+    // "ping/nudge/remind me again" without explicit cadence: pick a sane default.
+    // "keep reminding/pinging" style requests with no explicit cadence
+    if (
+      (/\b(ping|nudge|remind|check\s+in|follow\s+up|bug|nag|poke)\b/.test(s) && /\b(again|until)\b/.test(s)) ||
+      /\bkeep\s+(reminding|pinging|nudging|bugging|nagging|checking\s+in|following\s+up)\b/.test(s)
+    ) {
+      return 15;
+    }
+
+    // Aggressive slang (still interpret as default cadence)
+    if (/\b(blow\s+me\s+up|spam\s+me|keep\s+spamming|keep\s+texting|don'?t\s+let\s+me\s+forget)\b/.test(s)) {
+      return 10;
     }
 
     return null;
