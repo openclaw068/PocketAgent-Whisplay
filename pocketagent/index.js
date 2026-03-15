@@ -176,16 +176,32 @@ async function say(text) {
     const displayText = spoken.length > 600 ? (spoken.slice(0, 600) + '…') : spoken;
     void displayUpdate({ status: 'speaking', line1: 'PocketAgent', line2: displayText });
 
+    // Battery: optional Wi‑Fi burst mode for cloud calls (TTS)
+    const wifiBurst = !!DEFAULTS.wifiBurst;
+    const wifiIface = DEFAULTS.wifiIface || 'wlan0';
+
+    if (wifiBurst) {
+      void displayUpdate({ status: 'wifi', line1: 'PocketAgent', line2: 'Connecting Wi‑Fi…' });
+      await wifiOn({ iface: wifiIface, timeoutMs: Number(process.env.POCKETAGENT_WIFI_ON_TIMEOUT_MS ?? 12000) });
+    }
+
     const ttsSpeed = Number(process.env.POCKETAGENT_TTS_SPEED ?? 1.0);
-    const { audio, contentType } = await ttsToAudio({
-      baseUrl,
-      apiKeyEnv,
-      model: DEFAULTS.ttsModel,
-      voice: DEFAULTS.ttsVoice,
-      text: spoken,
-      format: 'wav',
-      speed: ttsSpeed
-    });
+    let audio, contentType;
+    try {
+      ({ audio, contentType } = await ttsToAudio({
+        baseUrl,
+        apiKeyEnv,
+        model: DEFAULTS.ttsModel,
+        voice: DEFAULTS.ttsVoice,
+        text: spoken,
+        format: 'wav',
+        speed: ttsSpeed
+      }));
+    } finally {
+      if (wifiBurst) {
+        await wifiOff({ iface: wifiIface });
+      }
+    }
     const out = path.join(DATA_DIR, 'tts.wav');
     fs.writeFileSync(out, audio);
     // Repair WAV header quirks (we've seen invalid length fields that cause quiet/distorted playback).
@@ -708,7 +724,15 @@ async function oneTurn({ abortSignal = null } = {}) {
           await say('What should I remember?');
           return;
         }
-        const vec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: fact });
+
+        if (wifiBurst) await wifiOn({ iface: wifiIface, timeoutMs: Number(process.env.POCKETAGENT_WIFI_ON_TIMEOUT_MS ?? 12000) });
+        let vec;
+        try {
+          vec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: fact });
+        } finally {
+          if (wifiBurst) await wifiOff({ iface: wifiIface });
+        }
+
         semMemory.add({ text: fact, embedding: vec, meta: { source: 'voice', kind: 'fact' } });
         await say('Got it — I’ll remember that.');
         return;
@@ -726,7 +750,15 @@ async function oneTurn({ abortSignal = null } = {}) {
           await say('What should I look up?');
           return;
         }
-        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+
+        if (wifiBurst) await wifiOn({ iface: wifiIface, timeoutMs: Number(process.env.POCKETAGENT_WIFI_ON_TIMEOUT_MS ?? 12000) });
+        let qvec;
+        try {
+          qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        } finally {
+          if (wifiBurst) await wifiOff({ iface: wifiIface });
+        }
+
         const hits = semMemory.search({ queryEmbedding: qvec, k: 3, minScore: 0.18 });
 
         // No relevant memories? Fall back to normal chat.
@@ -763,7 +795,15 @@ async function oneTurn({ abortSignal = null } = {}) {
     if (routed?.intent === 'forget_memory') {
       try {
         const q = String(routed.forgetQuery || text || '').trim();
-        const qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+
+        if (wifiBurst) await wifiOn({ iface: wifiIface, timeoutMs: Number(process.env.POCKETAGENT_WIFI_ON_TIMEOUT_MS ?? 12000) });
+        let qvec;
+        try {
+          qvec = await embed({ baseUrl, apiKeyEnv, model: DEFAULTS.embeddingModel, input: q });
+        } finally {
+          if (wifiBurst) await wifiOff({ iface: wifiIface });
+        }
+
         const hits = semMemory.search({ queryEmbedding: qvec, k: 1, minScore: 0.18 });
         const top = hits?.[0]?.item;
         if (!top) {
