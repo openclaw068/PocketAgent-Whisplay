@@ -1,4 +1,5 @@
-import { RRule } from 'rrule';
+import pkg from 'rrule';
+const { RRule } = pkg;
 
 // Build a next occurrence timestamp from an RFC5545 RRULE (no DTSTART assumed).
 // We treat DTSTART as the provided dtStart (usually the first due date).
