@@ -8,8 +8,8 @@ It supports two modes:
 
 ## Defaults
 
-- SSID: `PocketAgent-Setup`
-- Password: `pocketagent`
+- SSID: `pocketagent`
+- Password: `Zombie@22`
 - Portal URL (when connected to the setup AP): `http://192.168.4.1/`
 
 ## Change SSID / password

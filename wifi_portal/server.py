@@ -267,18 +267,46 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/" or self.path.startswith("/?"):
+        # Normalize path (strip query string)
+        p = self.path.split("?", 1)[0]
+
+        # Captive portal detection endpoints.
+        # For provisioning (no internet), we want these checks to lead the OS to our portal.
+        # Returning "Success" / 204 would *suppress* the captive portal UI.
+        captive_paths = {
+            # iOS/macOS
+            "/hotspot-detect.html",
+            # Android/ChromeOS
+            "/generate_204",
+            # Windows
+            "/ncsi.txt",
+            "/connecttest.txt",
+            # Common Apple legacy path some devices hit
+            "/library/test/success.html",
+        }
+        if p in captive_paths:
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+
+        if p == "/" or self.path.startswith("/?"):
             return self._send(200, HTML.encode("utf-8"))
-        if self.path == "/health":
+        if p == "/health":
             return self._send(200, b"{\"ok\":true}", "application/json")
-        if self.path == "/api/list":
+        if p == "/api/list":
             try:
                 nets = list_connections()
                 return self._send(200, json.dumps({"ok": True, "networks": nets}).encode("utf-8"), "application/json")
             except Exception as e:
                 return self._send(500, json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), "application/json")
 
-        return self._send(404, b"not found", "text/plain")
+        # Robust iPhone-friendly fallback: redirect any unknown path to portal root.
+        # Many clients attempt to open random URLs immediately after joining.
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.end_headers()
+        return
 
     def do_POST(self):
         n = int(self.headers.get("content-length") or "0")

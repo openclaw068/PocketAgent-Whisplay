@@ -23,8 +23,8 @@ AP_IFACE=${POCKETAGENT_WIFI_IFACE:-$AP_IFACE}
 # Default: false (fallback mode).
 SETUP_AP_ALWAYS_ON=${POCKETAGENT_SETUP_AP_ALWAYS_ON:-false}
 
-AP_SSID=${POCKETAGENT_SETUP_AP_SSID:-PocketAgent-Setup}
-AP_PASS=${POCKETAGENT_SETUP_AP_PASS:-pocketagent}
+AP_SSID=${POCKETAGENT_SETUP_AP_SSID:-pocketagent}
+AP_PASS=${POCKETAGENT_SETUP_AP_PASS:-Zombie@22}
 AP_ADDR=${POCKETAGENT_SETUP_AP_ADDR:-192.168.4.1}
 AP_MASK=${POCKETAGENT_SETUP_AP_MASK:-24}
 AP_CHANNEL=${POCKETAGENT_SETUP_AP_CHANNEL:-1}
@@ -142,6 +142,10 @@ dhcp-range=192.168.4.10,192.168.4.200,12h
 dhcp-option=option:router,$AP_ADDR
 dhcp-option=option:dns-server,$AP_ADDR
 
+# Captive Portal Identification (RFC 8910)
+# Helps some clients (including iOS/macOS) find the portal more reliably.
+dhcp-option=114,http://$AP_ADDR/
+
 # DNS captive behavior
 # Answer every query with the portal IP (helps captive portal pop)
 address=/#/$AP_ADDR
@@ -154,14 +158,22 @@ EOF
     rm -f /run/pocketagent-dnsmasq.pid
   fi
 
-  # If another dnsmasq is already bound to our AP addr, we won't be able to serve DHCP.
-  # This is a common cause of "iPhone spinning" when joining the SSID.
-  if ss -H -lunp 2>/dev/null | grep -qE "\b${AP_ADDR}:53\b|\b${AP_ADDR}:67\b"; then
-    log "[wifi-ap] ERROR: dnsmasq port conflict on ${AP_ADDR} (53/67). Another process is bound; AP clients may fail to get DHCP."
+  # If another process is already listening on DHCP/DNS ports, dnsmasq may fail to start.
+  # This is a very common cause of "iPhone spinning" when joining the SSID (no DHCP lease).
+  if ss -H -lunp 2>/dev/null | grep -qE ':(53|67)\b'; then
+    log "[wifi-ap] WARN: something is already listening on UDP :53 or :67; dnsmasq may fail (DHCP/DNS)."
+    ss -H -lunp 2>/dev/null | egrep ':(53|67)\b' | tee -a "$LOG_FILE" >&2 || true
   fi
 
   dnsmasq -C "$DNSMASQ_CONF" -k >>"$LOG_FILE" 2>&1 &
   DNSMASQ_PID=$!
+
+  # Fail fast if dnsmasq dies immediately (bind error, etc.)
+  sleep 0.2
+  if ! kill -0 "$DNSMASQ_PID" >/dev/null 2>&1; then
+    log "[wifi-ap] ERROR: dnsmasq failed to start (DHCP/DNS down) — clients will spin on connect."
+    return 1
+  fi
 
   hostapd "$HOSTAPD_CONF" -dd >>"$LOG_FILE" 2>&1 &
   HOSTAPD_PID=$!
