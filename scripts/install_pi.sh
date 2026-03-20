@@ -148,10 +148,4 @@ echo "  sudo systemctl restart pocketagent-display pocketagent-reminders pocketa
 echo "  sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f"
 
 echo ""
-echo "Optional: Wi-Fi setup AP fallback (connect your phone to PocketAgent-Setup):"
-echo "  sudo ./scripts/install_wifi_ap_fallback.sh"
-
-echo ""
-echo "Optional: offline Wi-Fi setup portal (adds saved networks via a phone web page):"
-echo "  sudo ./scripts/install_wifi_portal.sh"
-echo "  Then open: http://<pi-ip>:3792"
+echo "Note: Wi‑Fi AP/hotspot setup tooling has been removed to avoid wlan firmware instability."
