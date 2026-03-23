@@ -28,13 +28,16 @@ if [[ "$count" == "0" ]]; then
 fi
 
 # Sort by dueAtIso and take the earliest
-# Format dueAtIso into local time (AM/PM) using the system timezone.
-# NOTE: Ensure the Pi's timezone is set correctly (e.g., America/Chicago).
-text=$(printf '%s' "$json" | jq -r '.reminders
-  | sort_by(.dueAtIso)
-  | .[0]
-  | . as $r
-  | "Next reminder: \($r.text). Due \((( $r.dueAtIso | sub("\\.\\d+Z$"; "Z") | fromdateiso8601)) | strftime("%A at %l:%M %p"))"')
+# Format dueAtIso into local time (AM/PM) using the configured timezone.
+# jq's strftime is UTC-based; use `date` with TZ for correct local time.
+tz="${POCKETAGENT_TIMEZONE:-${TZ:-America/Chicago}}"
+
+next=$(printf '%s' "$json" | jq -r '.reminders | sort_by(.dueAtIso) | .[0] | {text, dueAtIso}')
+rem_text=$(printf '%s' "$next" | jq -r '.text')
+due_iso=$(printf '%s' "$next" | jq -r '.dueAtIso | sub("\\.\\d+Z$"; "Z")')
+due_human=$(TZ="$tz" date -d "$due_iso" "+%A at %-I:%M %p")
+
+text="Next reminder: ${rem_text}. Due ${due_human}"
 
 # Ask PocketAgent to speak it (via notify queue)
 # Use kind=info so PocketAgent reads it without the "did you do it yet?" follow-up flow.

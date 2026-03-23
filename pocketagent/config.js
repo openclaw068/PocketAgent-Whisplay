@@ -1,5 +1,5 @@
 export const DEFAULTS = {
-  timezone: 'America/Chicago',
+  timezone: process.env.POCKETAGENT_TIMEZONE || 'America/Chicago',
   // Audio
   sampleRateHertz: 16000,
   recordingDevice: process.env.POCKETAGENT_RECORDING_DEVICE || null,
