@@ -225,20 +225,26 @@ node pocketagent/index.js
 sudo bash scripts/install_pi.sh
 sudo nano /etc/default/pocketagent   # set OPENAI_API_KEY="sk-..." (quotes recommended)
 
-# IMPORTANT: choose the right audio card
-# If `aplay -l` shows HDMI as card 0 and WM8960 as card 1, set:
-#   POCKETAGENT_RECORDING_DEVICE=plughw:1,0
-#   POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
-#   POCKETAGENT_ALSA_CARD=1
-# (A fresh install may default to card 0,0 and you'll get "no sound".)
-
 # Then apply the repo's known-good mixer routing:
 cd /opt/pocketagent
 sudo ./scripts/restore-audio-state.sh ./config/audio
 sudo alsactl store
 
-sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent
-sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f
+sudo systemctl restart pocketagent-display pocketagent-pisugar-monitor pocketagent-reminders pocketagent
+sudo journalctl -u pocketagent-display -u pocketagent-pisugar-monitor -u pocketagent -f
+```
+
+### Important: don't edit files in /opt/pocketagent directly
+If you need to debug, avoid one-off `sed -i` edits inside `/opt/pocketagent` services (they can break boot). Instead:
+- change settings in `/etc/default/pocketagent`
+- or make the change in this repo and `git pull`
+
+If you *did* accidentally add a bad line and a service crash-loops, fix by:
+```bash
+sudo systemctl reset-failed pocketagent-pisugar-monitor
+cd /opt/pocketagent
+sudo git checkout -- pocketagent/pisugar_monitor_daemon.js
+sudo systemctl restart pocketagent-pisugar-monitor
 ```
 
 ## AirPlay volume (phone-controlled) + fixed assistant volume
