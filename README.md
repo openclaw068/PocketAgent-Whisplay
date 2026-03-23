@@ -317,5 +317,22 @@ gpiomon --help | head
 sudo gpiomon -n -F %E -s gpiochip0 23
 ```
 
+## Double-press helper: speak next upcoming reminder
+If you map the extra PiSugar/Whisplay button actions to shell commands, you can make PocketAgent speak your next reminder.
+
+Run:
+```bash
+sudo bash /opt/pocketagent/scripts/say-next-reminder.sh
+```
+
+### Timezone (important)
+The helper formats due times using the Pi's local timezone. Set it once (Central US):
+```bash
+sudo timedatectl set-timezone America/Chicago
+
+# verify
+timedatectl | sed -n '1,8p'
+```
+
 ## Notes on Piper (offline TTS)
 Piper can be great on a Pi 4/5, but on a **Pi Zero 2W** it’s usually borderline for latency and voice quality depending on the model and settings. For v0.1 we default to OpenAI TTS for reliability; we can add a Piper option later and benchmark.

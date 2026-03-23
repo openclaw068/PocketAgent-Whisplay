@@ -28,7 +28,13 @@ if [[ "$count" == "0" ]]; then
 fi
 
 # Sort by dueAtIso and take the earliest
-text=$(printf '%s' "$json" | jq -r '.reminders | sort_by(.dueAtIso) | .[0] | "Next reminder: \(.text). Due at \(.dueAtIso)."')
+# Format dueAtIso into local time (AM/PM) using the system timezone.
+# NOTE: Ensure the Pi's timezone is set correctly (e.g., America/Chicago).
+text=$(printf '%s' "$json" | jq -r '.reminders
+  | sort_by(.dueAtIso)
+  | .[0]
+  | . as $r
+  | "Next reminder: \($r.text). Due \(($r.dueAtIso | fromdateiso8601) | strftime("%l:%M %p"))"')
 
 # Ask PocketAgent to speak it (via notify queue)
 curl -fsS -X POST "http://${NOTIFY_HOST}:${NOTIFY_PORT}/notify" \
