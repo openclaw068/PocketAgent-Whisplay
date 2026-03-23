@@ -195,6 +195,12 @@ install -d -m 755 -o root -g root /opt/pocketagent/scripts
 install -m 755 -o root -g root "$APP_DIR/scripts/set-timezone.sh" /opt/pocketagent/scripts/set-timezone.sh
 install -m 755 -o root -g root "$APP_DIR/scripts/say-next-reminder.sh" /opt/pocketagent/scripts/say-next-reminder.sh
 
+# Allow PocketAgent (runs as USER_NAME) to update timezone without interactive sudo.
+# Restrict to a single script path for safety.
+SUDOERS_FILE="/etc/sudoers.d/pocketagent-timezone"
+echo "${USER_NAME} ALL=(root) NOPASSWD: /opt/pocketagent/scripts/set-timezone.sh *" > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+
 # systemd: install services with correct user/group
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent.service > /etc/systemd/system/pocketagent.service
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent-reminders.service > /etc/systemd/system/pocketagent-reminders.service
