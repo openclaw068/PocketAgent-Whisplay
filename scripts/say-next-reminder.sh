@@ -34,7 +34,7 @@ text=$(printf '%s' "$json" | jq -r '.reminders
   | sort_by(.dueAtIso)
   | .[0]
   | . as $r
-  | "Next reminder: \($r.text). Due \(($r.dueAtIso | fromdateiso8601) | strftime("%l:%M %p"))"')
+  | "Next reminder: \($r.text). Due \(($r.dueAtIso | fromdateiso8601) | strftime("%A at %l:%M %p"))"')
 
 # Ask PocketAgent to speak it (via notify queue)
 curl -fsS -X POST "http://${NOTIFY_HOST}:${NOTIFY_PORT}/notify" \
