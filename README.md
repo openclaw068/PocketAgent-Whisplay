@@ -86,12 +86,29 @@ aplay -D plughw:1,0 /usr/share/sounds/alsa/Front_Center.wav
 ```
 
 ### If you get "no sound" even though playback succeeds
-This is usually mixer routing/mute on the WM8960. First open the WM8960 mixer:
+This is usually **mixer routing/mute** on the WM8960.
+
+#### Preferred (reproducible): restore the known-good mixer state from this repo
+PocketAgent-Whisplay includes a saved ALSA state and a helper script.
+
+After install (or any time audio gets weird):
+```bash
+cd /opt/pocketagent
+sudo ./scripts/restore-audio-state.sh ./config/audio
+sudo alsactl store
+
+# sanity check
+aplay -D plughw:1,0 /usr/share/sounds/alsa/Front_Center.wav
+```
+
+#### Manual fallback (alsamixer)
+First open the WM8960 mixer:
 ```bash
 alsamixer -c 1  # press F6, select wm8960-soundcard
 ```
 
-If you prefer command-line (and to make it reproducible), force-enable the common WM8960 playback path:
+#### Manual fallback (amixer CLI)
+If you prefer command-line, force-enable the common WM8960 playback path:
 ```bash
 # route PCM into the output mixers
 amixer -c 1 sset 'Left Output Mixer PCM' on
@@ -124,14 +141,20 @@ node pocketagent/index.js
 sudo bash scripts/install_pi.sh
 sudo nano /etc/default/pocketagent   # set OPENAI_API_KEY="sk-..." (quotes recommended)
 
-# The installer pre-fills a working baseline for:
-# - WM8960 audio (plughw:1,0)
-# - ULTRA++ PTT button (chip=0, line=23, active-low)
-# - Stable button tuning (min-hold/debounce/cooldown)
-# - Default mode: chat (neutral voice agent, press-to-talk per turn)
+# IMPORTANT: choose the right audio card
+# If `aplay -l` shows HDMI as card 0 and WM8960 as card 1, set:
+#   POCKETAGENT_RECORDING_DEVICE=plughw:1,0
+#   POCKETAGENT_PLAYBACK_DEVICE=plughw:1,0
+#   POCKETAGENT_ALSA_CARD=1
+# (A fresh install may default to card 0,0 and you'll get "no sound".)
 
-sudo systemctl start pocketagent
-sudo journalctl -u pocketagent -f
+# Then apply the repo's known-good mixer routing:
+cd /opt/pocketagent
+sudo ./scripts/restore-audio-state.sh ./config/audio
+sudo alsactl store
+
+sudo systemctl restart pocketagent-display pocketagent-reminders pocketagent
+sudo journalctl -u pocketagent-display -u pocketagent-reminders -u pocketagent -f
 ```
 
 ## AirPlay volume (phone-controlled) + fixed assistant volume
