@@ -23,7 +23,7 @@ count=$(printf '%s' "$json" | jq -r '.reminders | length')
 if [[ "$count" == "0" ]]; then
   curl -fsS -X POST "http://${NOTIFY_HOST}:${NOTIFY_PORT}/notify" \
     -H 'Content-Type: application/json' \
-    -d '{"id":"next-reminder-none","kind":"reminder","text":"You have no upcoming reminders."}' >/dev/null
+    -d '{"id":"next-reminder-none","kind":"info","text":"You have no upcoming reminders."}' >/dev/null
   exit 0
 fi
 
@@ -37,6 +37,7 @@ text=$(printf '%s' "$json" | jq -r '.reminders
   | "Next reminder: \($r.text). Due \((( $r.dueAtIso | sub("\\.\\d+Z$"; "Z") | fromdateiso8601)) | strftime("%A at %l:%M %p"))"')
 
 # Ask PocketAgent to speak it (via notify queue)
+# Use kind=info so PocketAgent reads it without the "did you do it yet?" follow-up flow.
 curl -fsS -X POST "http://${NOTIFY_HOST}:${NOTIFY_PORT}/notify" \
   -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg t "$text" '{id:"next-reminder", kind:"reminder", text:$t}')" >/dev/null
+  -d "$(jq -nc --arg t "$text" '{id:"next-reminder", kind:"info", text:$t}')" >/dev/null
