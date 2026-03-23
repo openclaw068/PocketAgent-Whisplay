@@ -1,9 +1,13 @@
 import net from 'node:net';
 
 // Minimal client for PiSugar Power Manager (pisugar-server).
-// Talks to TCP (default 127.0.0.1:8423) with newline-delimited commands.
+// Talks to either:
+// - Unix domain socket (default /tmp/pisugar-server.sock), OR
+// - TCP (default 127.0.0.1:8423)
+// with newline-delimited commands.
 
 export async function pisugarCommand(cmd, {
+  socketPath = process.env.POCKETAGENT_PISUGAR_SOCKET || '/tmp/pisugar-server.sock',
   host = process.env.POCKETAGENT_PISUGAR_HOST || '127.0.0.1',
   port = Number(process.env.POCKETAGENT_PISUGAR_PORT || 8423),
   timeoutMs = 1200
@@ -13,7 +17,9 @@ export async function pisugarCommand(cmd, {
 
   return await new Promise((resolve, reject) => {
     let done = false;
-    const sock = net.createConnection({ host, port });
+    // Prefer UDS when present (more reliable than TCP on some images).
+    const connOpts = socketPath ? { path: socketPath } : { host, port };
+    const sock = net.createConnection(connOpts);
     const chunks = [];
 
     const finish = (err, data) => {
