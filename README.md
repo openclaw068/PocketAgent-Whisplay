@@ -98,6 +98,26 @@ aplay -D plughw:1,0 /usr/share/sounds/alsa/Front_Center.wav
 ### If you get "no sound" even though playback succeeds
 This is usually **mixer routing/mute** on the WM8960.
 
+### If the Whisplay LCD doesn't show anything
+On a fresh Pi OS install, SPI/I2C are often disabled.
+
+Symptoms:
+- display service runs, but logs show something like: `Whisplay backend unavailable: [Errno 2] No such file or directory`
+- and you have no `/dev/spidev*` (and often no `/dev/i2c*`)
+
+Fix:
+```bash
+sudo raspi-config
+# Interface Options → SPI → Enable
+# Interface Options → I2C → Enable
+sudo reboot
+```
+Then restart the display service:
+```bash
+sudo systemctl restart pocketagent-display
+sudo journalctl -u pocketagent-display -n 50 --no-pager
+```
+
 #### Preferred (reproducible): restore the known-good mixer state from this repo
 PocketAgent-Whisplay includes a saved ALSA state and a helper script.
 

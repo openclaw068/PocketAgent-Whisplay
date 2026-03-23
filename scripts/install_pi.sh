@@ -44,7 +44,8 @@ apt-get install -y --no-install-recommends \
   libgpiod2 \
   python3 \
   python3-pil \
-  python3-spidev
+  python3-spidev \
+  raspi-config
 
 # ---- Optional: Tailscale install (remote access) ----
 # We install Tailscale via the official script and enable the service.
@@ -95,6 +96,15 @@ fi
 # Install/enable WM8960 + SPI/I2C/I2S overlays (script requires reboot afterwards)
 if [ -f "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" ]; then
   bash "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" || true
+fi
+
+# Note: Whisplay LCD needs SPI (and typically I2C). Many fresh Bookworm images ship with
+# interfaces disabled → no /dev/spidev* and the display backend can't initialize.
+# We don't force-enable here (non-interactive), but we print a clear next-step reminder.
+if ! ls /dev/spidev* >/dev/null 2>&1; then
+  echo "[install_pi] NOTE: /dev/spidev* not found. Enable SPI (and I2C) then reboot:" 
+  echo "  sudo raspi-config  # Interface Options → SPI/I2C → Enable" 
+  echo "  sudo reboot" 
 fi
 
 # Sanity checks: required CLI tools
