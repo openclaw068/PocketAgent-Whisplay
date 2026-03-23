@@ -57,7 +57,8 @@ apt-get install -y --no-install-recommends \
   python3-pil \
   python3-spidev \
   raspi-config \
-  netcat-openbsd
+  netcat-openbsd \
+  jq
 
 # ---- Optional: Tailscale install (remote access) ----
 # We install Tailscale via the official script and enable the service.
@@ -204,6 +205,7 @@ echo "2) Reboot (Whisplay driver + SPI/I2C changes require it): sudo reboot"
 echo "3) Restore known-good mixer state (recommended):"
 echo "   cd /opt/pocketagent && sudo ./scripts/restore-audio-state.sh ./config/audio && sudo alsactl store"
 echo "4) Optional but recommended (battery icon): install PiSugar Power Manager (interactive):"
+echo "   Open: http://<pi-ip-address>:8421 to configure the PiSugar device"
 echo "   wget -O pisugar-power-manager.sh https://cdn.pisugar.com/release/pisugar-power-manager.sh"
 echo "   bash pisugar-power-manager.sh -c release"
 echo "After reboot / install:"

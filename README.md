@@ -155,6 +155,10 @@ bash pisugar-power-manager.sh -c release
 ```
 
 #### Verify PiSugar is running
+After install, you can access the PiSugar management UI at:
+- `http://<pi-ip-address>:8421`
+
+Then verify the service/socket:
 ```bash
 systemctl status --no-pager pisugar-server
 ls -la /tmp/pisugar-server.sock
