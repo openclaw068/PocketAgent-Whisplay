@@ -45,11 +45,12 @@ apt-get install -y --no-install-recommends \
   python3 \
   python3-pil \
   python3-spidev \
-  raspi-config
+  raspi-config \
+  netcat-openbsd
 
 # ---- Optional: Tailscale install (remote access) ----
 # We install Tailscale via the official script and enable the service.
-# Auth (tailscale up) is intentionally left to the user because it requires a one-time login key / interactive auth.
+# Auth is intentionally left to the user because it requires a one-time login / auth key.
 INSTALL_TAILSCALE_NORM=$(echo "${INSTALL_TAILSCALE:-}" | tr '[:upper:]' '[:lower:]')
 if [[ "${INSTALL_TAILSCALE_NORM}" == "y" || "${INSTALL_TAILSCALE_NORM}" == "yes" || "${INSTALL_TAILSCALE_NORM}" == "true" || "${INSTALL_TAILSCALE_NORM}" == "1" ]]; then
   echo "[install_pi] Installing Tailscale…"
@@ -57,6 +58,7 @@ if [[ "${INSTALL_TAILSCALE_NORM}" == "y" || "${INSTALL_TAILSCALE_NORM}" == "yes"
   curl -fsSL https://tailscale.com/install.sh | sh
   systemctl enable --now tailscaled || true
   echo "[install_pi] Tailscale installed. Next: sudo tailscale up"
+  echo "[install_pi] Tip: if you're headless, run 'sudo tailscale up' and open the login URL it prints."
 fi
 
 # Node.js: install Node 20+ via NodeSource if missing.

@@ -118,6 +118,34 @@ sudo systemctl restart pocketagent-display
 sudo journalctl -u pocketagent-display -n 50 --no-pager
 ```
 
+### Battery icon not showing
+The battery indicator comes from **PiSugar Power Manager** (`pisugar-server`).
+
+#### Install PiSugar Power Manager (one-time)
+Run PiSugar's installer (it includes a short interactive setup):
+```bash
+wget -O pisugar-power-manager.sh https://cdn.pisugar.com/release/pisugar-power-manager.sh
+bash pisugar-power-manager.sh -c release
+```
+
+#### Verify PiSugar is running
+```bash
+systemctl status --no-pager pisugar-server
+ls -la /tmp/pisugar-server.sock
+```
+
+#### Quick battery query
+```bash
+echo "get battery" | nc -U -q 0 /tmp/pisugar-server.sock
+echo "get battery_power_plugged" | nc -U -q 0 /tmp/pisugar-server.sock
+```
+
+If `nc` isn't installed:
+```bash
+sudo apt-get update
+sudo apt-get install -y netcat-openbsd
+```
+
 #### Preferred (reproducible): restore the known-good mixer state from this repo
 PocketAgent-Whisplay includes a saved ALSA state and a helper script.
 
