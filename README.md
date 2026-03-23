@@ -64,6 +64,32 @@ sudo apt-get update
 sudo apt-get install -y git ca-certificates curl
 ```
 
+### Adding fallback Wi‑Fi networks (NetworkManager)
+On Bookworm, Wi‑Fi is often managed by **NetworkManager**. If you used `wpa_cli` to add networks and `save_config` fails, that’s expected — NetworkManager doesn’t persist through wpa_supplicant config writes.
+
+Instead, create saved connections with `nmcli` and set **autoconnect priorities**:
+- higher number = preferred
+- lower number = fallback
+
+Example (main = IoT, fallbacks = iPhone + Kolmer):
+```bash
+# Create fallback profiles even if the SSID is not currently visible
+sudo nmcli con add type wifi ifname wlan0 con-name "iPhone" ssid "iPhone"
+sudo nmcli con modify "iPhone" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "Zombie@22" connection.autoconnect yes connection.autoconnect-priority -10
+
+sudo nmcli con add type wifi ifname wlan0 con-name "Kolmer" ssid "Kolmer"
+sudo nmcli con modify "Kolmer" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "Columbus1" connection.autoconnect yes connection.autoconnect-priority -10
+
+# If your main Wi‑Fi profile has a generic name (often "preconfigured"), rename it:
+sudo nmcli con modify "preconfigured" connection.id "IoT"
+
+# Prefer the main network
+sudo nmcli con modify "IoT" connection.autoconnect yes connection.autoconnect-priority 10
+
+# Verify
+sudo nmcli -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY con show | egrep 'IoT|iPhone|Kolmer'
+```
+
 ## ULTRA++ audio driver (wm8960)
 On up-to-date Raspberry Pi OS, the ULTRA++ / WM8960 driver is often auto-detected.
 
