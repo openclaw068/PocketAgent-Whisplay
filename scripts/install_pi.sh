@@ -98,13 +98,33 @@ if [ -f "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" ]; then
   bash "$WHISPLAY_DRIVER_DIR/Driver/install_wm8960_drive.sh" || true
 fi
 
-# Note: Whisplay LCD needs SPI (and typically I2C). Many fresh Bookworm images ship with
+# Whisplay LCD needs SPI (and typically I2C). Many fresh Bookworm images ship with
 # interfaces disabled → no /dev/spidev* and the display backend can't initialize.
-# We don't force-enable here (non-interactive), but we print a clear next-step reminder.
+#
+# Default behavior: if SPI device nodes are missing, auto-enable SPI+I2C via raspi-config
+# (non-interactive) and instruct the user to reboot.
+# Set POCKETAGENT_ENABLE_SPI_I2C=false to skip.
+ENABLE_SPI_I2C_RAW="${POCKETAGENT_ENABLE_SPI_I2C:-true}"
+ENABLE_SPI_I2C=$(echo "${ENABLE_SPI_I2C_RAW}" | tr '[:upper:]' '[:lower:]')
+
 if ! ls /dev/spidev* >/dev/null 2>&1; then
-  echo "[install_pi] NOTE: /dev/spidev* not found. Enable SPI (and I2C) then reboot:" 
-  echo "  sudo raspi-config  # Interface Options → SPI/I2C → Enable" 
-  echo "  sudo reboot" 
+  if [[ "${ENABLE_SPI_I2C}" == "false" || "${ENABLE_SPI_I2C}" == "0" || "${ENABLE_SPI_I2C}" == "no" || "${ENABLE_SPI_I2C}" == "n" ]]; then
+    echo "[install_pi] NOTE: /dev/spidev* not found. Enable SPI (and I2C) then reboot:" 
+    echo "  sudo raspi-config  # Interface Options → SPI/I2C → Enable" 
+    echo "  sudo reboot" 
+  else
+    if command -v raspi-config >/dev/null 2>&1; then
+      echo "[install_pi] Enabling SPI + I2C (needed for Whisplay LCD)…"
+      raspi-config nonint do_spi 0 || true
+      raspi-config nonint do_i2c 0 || true
+      echo "[install_pi] SPI/I2C enabled. Reboot required: sudo reboot"
+    else
+      echo "[install_pi] NOTE: /dev/spidev* not found and raspi-config missing; enable SPI/I2C then reboot:" 
+      echo "  sudo apt-get install -y raspi-config" 
+      echo "  sudo raspi-config  # Interface Options → SPI/I2C → Enable" 
+      echo "  sudo reboot" 
+    fi
+  fi
 fi
 
 # Sanity checks: required CLI tools
