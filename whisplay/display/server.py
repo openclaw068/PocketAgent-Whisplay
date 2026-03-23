@@ -358,13 +358,7 @@ def render_frame(s: dict, t: float):
             fill=fill_col,
         )
 
-        # percent text (optional)
-        show_pct = (os.environ.get("POCKETAGENT_DISPLAY_SHOW_BATTERY_PERCENT", "true") or "true").lower() == "true"
-        if show_pct and _FONT_STATUS is not None:
-            # small text to the left of the battery
-            txt = f"{pct}%"
-            tw = d.textlength(txt, font=_FONT_STATUS)
-            d.text((bx - tw - 6, by - 2), txt, font=_FONT_STATUS, fill=(255, 255, 255, 220))
+        # (no percent text — icon only)
 
         # small bolt overlay when charging
         if plugged and charging:
