@@ -54,6 +54,16 @@ By default PocketAgent uses GPIO push-to-talk.
 - `gpiod` / libgpiod tools (provides `gpiomon`)
 - `OPENAI_API_KEY` set
 
+## Common fresh-install pitfalls
+### `git: command not found`
+Some Bookworm Lite images don’t include `git`.
+
+Fix:
+```bash
+sudo apt-get update
+sudo apt-get install -y git ca-certificates curl
+```
+
 ## ULTRA++ audio driver (wm8960)
 On up-to-date Raspberry Pi OS, the ULTRA++ / WM8960 driver is often auto-detected.
 
