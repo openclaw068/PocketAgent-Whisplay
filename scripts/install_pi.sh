@@ -34,6 +34,17 @@ else
   read -r -p "Install Tailscale for remote access? (y/N): " INSTALL_TAILSCALE
 fi
 
+# Optional: PiSugar Power Manager (battery)
+# - If installed, PocketAgent can show battery percent/icon on the Whisplay LCD.
+# - This install is interactive (model/auth prompts). We'll prompt unless POCKETAGENT_INSTALL_PISUGAR is set.
+INSTALL_PISUGAR_RAW="${POCKETAGENT_INSTALL_PISUGAR:-}"
+INSTALL_PISUGAR=""
+if [[ -n "$INSTALL_PISUGAR_RAW" ]]; then
+  INSTALL_PISUGAR="${INSTALL_PISUGAR_RAW}"
+else
+  read -r -p "Install PiSugar Power Manager (battery service) for battery icon? (y/N): " INSTALL_PISUGAR
+fi
+
 apt-get update
 apt-get install -y --no-install-recommends \
   git \
@@ -59,6 +70,20 @@ if [[ "${INSTALL_TAILSCALE_NORM}" == "y" || "${INSTALL_TAILSCALE_NORM}" == "yes"
   systemctl enable --now tailscaled || true
   echo "[install_pi] Tailscale installed. Next: sudo tailscale up"
   echo "[install_pi] Tip: if you're headless, run 'sudo tailscale up' and open the login URL it prints."
+fi
+
+# ---- Optional: PiSugar Power Manager install (battery service) ----
+INSTALL_PISUGAR_NORM=$(echo "${INSTALL_PISUGAR:-}" | tr '[:upper:]' '[:lower:]')
+if [[ "${INSTALL_PISUGAR_NORM}" == "y" || "${INSTALL_PISUGAR_NORM}" == "yes" || "${INSTALL_PISUGAR_NORM}" == "true" || "${INSTALL_PISUGAR_NORM}" == "1" ]]; then
+  echo "[install_pi] Installing PiSugar Power Manager (interactive)…"
+  echo "[install_pi] This will prompt you for a couple of one-time setup options."
+  tmpdir=$(mktemp -d)
+  wget -O "${tmpdir}/pisugar-power-manager.sh" https://cdn.pisugar.com/release/pisugar-power-manager.sh
+  bash "${tmpdir}/pisugar-power-manager.sh" -c release
+  rm -rf "${tmpdir}" || true
+
+  echo "[install_pi] PiSugar install done. Verify: systemctl status pisugar-server"
+  echo "[install_pi] Socket should exist: /tmp/pisugar-server.sock"
 fi
 
 # Node.js: install Node 20+ via NodeSource if missing.
