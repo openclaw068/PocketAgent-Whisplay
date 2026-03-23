@@ -30,7 +30,8 @@ fi
 
 # Replace or append POCKETAGENT_TIMEZONE
 if sudo grep -q '^POCKETAGENT_TIMEZONE=' "$ENV_FILE"; then
-  sudo sed -i "s/^POCKETAGENT_TIMEZONE=.*/POCKETAGENT_TIMEZONE=$TZ_NAME/" "$ENV_FILE"
+  # Use | delimiter so slashes in TZ_NAME (e.g. America/Los_Angeles) don't break sed.
+  sudo sed -i "s|^POCKETAGENT_TIMEZONE=.*|POCKETAGENT_TIMEZONE=$TZ_NAME|" "$ENV_FILE"
 else
   echo "POCKETAGENT_TIMEZONE=$TZ_NAME" | sudo tee -a "$ENV_FILE" >/dev/null
 fi
