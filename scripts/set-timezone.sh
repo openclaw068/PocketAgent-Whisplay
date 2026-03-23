@@ -11,15 +11,14 @@ if [[ -z "$TZ_NAME" ]]; then
   exit 2
 fi
 
-# Validate timezone exists on this OS (tzdata)
-if ! timedatectl list-timezones | grep -Fxq "$TZ_NAME"; then
+# 1) System timezone
+# Don't pre-validate via list-timezones (it can behave inconsistently across environments).
+# Instead, attempt to set and treat failure as invalid.
+if ! sudo timedatectl set-timezone "$TZ_NAME"; then
   echo "Invalid timezone: $TZ_NAME" >&2
   echo "Tip: timedatectl list-timezones | grep -i <city>" >&2
   exit 3
 fi
-
-# 1) System timezone
-sudo timedatectl set-timezone "$TZ_NAME"
 
 # 2) PocketAgent env file
 ENV_FILE="/etc/default/pocketagent"
