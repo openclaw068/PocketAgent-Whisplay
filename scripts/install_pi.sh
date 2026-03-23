@@ -113,6 +113,9 @@ npm ci || npm install
 
 mkdir -p "$APP_DIR/data"
 
+# Ensure timezone data/tooling is present (timedatectl). Usually installed, but safe.
+apt-get install -y --no-install-recommends tzdata >/dev/null 2>&1 || true
+
 # ---- Whisplay driver install (audio + LCD + button + RGB) ----
 # We install this separately from PocketAgent so you can update either independently.
 if [ -d "$WHISPLAY_DRIVER_DIR/.git" ]; then
@@ -186,6 +189,11 @@ chown root:root /etc/default/pocketagent
 chmod 600 /etc/default/pocketagent
 
 chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
+
+# Install helper scripts into /opt/pocketagent/scripts
+install -d -m 755 -o root -g root /opt/pocketagent/scripts
+install -m 755 -o root -g root "$APP_DIR/scripts/set-timezone.sh" /opt/pocketagent/scripts/set-timezone.sh
+install -m 755 -o root -g root "$APP_DIR/scripts/say-next-reminder.sh" /opt/pocketagent/scripts/say-next-reminder.sh
 
 # systemd: install services with correct user/group
 sed "s/^User=.*/User=${USER_NAME}/; s/^Group=.*/Group=${USER_NAME}/" systemd/pocketagent.service > /etc/systemd/system/pocketagent.service

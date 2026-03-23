@@ -921,6 +921,28 @@ async function oneTurn({ abortSignal = null } = {}) {
         await say("I had trouble checking the battery. Check the logs.");
         return;
       }
+    } else if (routed?.intent === 'set_timezone') {
+      try {
+        const phrase = String(routed?.timezoneText || text || '').trim();
+        const { resolveTimezone } = await import('./tz_resolver.js');
+        const hit = resolveTimezone(phrase);
+        if (!hit?.tz) {
+          await say("I couldn't map that to a timezone. Try saying something like 'Central time', 'America/Chicago', 'San Diego', or 'Pacific time'.");
+          return;
+        }
+
+        // Apply everywhere: system timezone + PocketAgent env var + restart services.
+        // Requires sudo (PocketAgent service runs as pi, but can execute sudo without password if configured; if not, this may fail).
+        const tz = hit.tz;
+        execFileSync('sudo', ['/opt/pocketagent/scripts/set-timezone.sh', tz], { stdio: 'pipe' });
+
+        await say(`Okay — I set the timezone to ${hit.label}.`);
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] set_timezone failed:', e?.message ?? e);
+        await say('I had trouble updating the timezone. Check the logs.');
+        return;
+      }
     } else if (routed?.intent === 'set_volume') {
       // Support:
       // - absolute: "set volume to 60%"

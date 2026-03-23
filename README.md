@@ -326,13 +326,23 @@ sudo bash /opt/pocketagent/scripts/say-next-reminder.sh
 ```
 
 ### Timezone (important)
-The helper formats due times using the Pi's local timezone. Set it once (Central US):
+PocketAgent uses a single timezone setting everywhere:
+- System timezone (`timedatectl`)
+- `/etc/default/pocketagent`: `POCKETAGENT_TIMEZONE=...`
+
+Set it once (Central US):
 ```bash
 sudo timedatectl set-timezone America/Chicago
-
-# verify
-timedatectl | sed -n '1,8p'
+sudo sed -i 's/^POCKETAGENT_TIMEZONE=.*/POCKETAGENT_TIMEZONE=America\/Chicago/' /etc/default/pocketagent
+sudo systemctl restart pocketagent-reminders pocketagent
 ```
+
+Or (recommended): tell PocketAgent:
+- "update my timezone to St Paul"
+- "set timezone to Pacific"
+- "I'm in San Diego"
+
+PocketAgent will confirm the timezone it applied.
 
 ## Notes on Piper (offline TTS)
 Piper can be great on a Pi 4/5, but on a **Pi Zero 2W** it’s usually borderline for latency and voice quality depending on the model and settings. For v0.1 we default to OpenAI TTS for reliability; we can add a Piper option later and benchmark.

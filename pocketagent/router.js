@@ -21,6 +21,7 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
 
       // device status
       'get_battery_status',
+      'set_timezone',
 
       'set_volume',
       'general_chat',
@@ -58,6 +59,9 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     memoryQuery: 'string|null',
     forgetQuery: 'string|null',
 
+    // set_timezone
+    timezoneText: 'string|null',
+
     // set_volume
     volumePercent: 'number|null',
     volumeDeltaPercent: 'number|null',
@@ -86,6 +90,9 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
     'If the user says to complete a specific reminder by description, choose ackTarget="by_text" and set ackText to the short description (e.g., "trash"). ' +
     'DEVICE STATUS RULES: ' +
     'If the user asks about battery level, battery percent, battery status, charging, power, or whether it is plugged in, intent MUST be "get_battery_status". ' +
+
+    'TIMEZONE RULES: ' +
+    'If user asks to change/update/set the timezone (e.g. "update my timezone to St Paul", "set timezone to Pacific", "I am in San Diego", "switch to PST"), intent MUST be "set_timezone" and timezoneText must contain the user\'s phrase. ' +
 
     'VOLUME RULES: ' +
     'If user says set volume to X percent, intent="set_volume" and set volumePercent=X. ' +
