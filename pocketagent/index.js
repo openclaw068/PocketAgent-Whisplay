@@ -261,12 +261,22 @@ function isAck(text) {
 }
 
 async function notifyAndMaybeAck({ id, text, kind }) {
+  const k = String(kind || '').toLowerCase();
+  const isReminderish = (k === 'due' || k === 'reminder');
+
+  // Non-reminder notifications (battery/info/etc) should be spoken verbatim with no "did you do it" prompt.
+  if (!isReminderish) {
+    void displayUpdate({ status: 'speaking', line1: 'PocketAgent', line2: String(text || '').slice(0, 160) });
+    await say(String(text || '').trim());
+    return;
+  }
+
   // Track which reminder we most recently spoke, so "done" can clear the right one.
   runtime.state.lastNotifiedReminderId = id;
 
-  const prompt = kind === 'due'
+  const prompt = k === 'due'
     ? `Reminder: ${text}. Did you do it?`
-    : `Did you do it yet? ${text}`;
+    : `Reminder: ${text}. Did you do it yet?`;
 
   void displayUpdate({ status: 'speaking', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
   await say(prompt);
