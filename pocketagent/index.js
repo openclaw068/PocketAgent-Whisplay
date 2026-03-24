@@ -936,11 +936,43 @@ async function oneTurn({ abortSignal = null } = {}) {
         const tz = hit.tz;
         execFileSync('sudo', ['/opt/pocketagent/scripts/set-timezone.sh', tz], { stdio: 'pipe' });
 
-        await say(`Okay — I set the timezone to ${hit.label}.`);
+        // Verbal confirmation with both friendly label and the actual IANA tz.
+        await say(`Okay — timezone updated to ${hit.label} (${tz}).`);
         return;
       } catch (e) {
         console.error('[PocketAgent] set_timezone failed:', e?.message ?? e);
         await say('I had trouble updating the timezone. Check the logs.');
+        return;
+      }
+    } else if (routed?.intent === 'get_timezone') {
+      try {
+        const iana = String(process.env.POCKETAGENT_TIMEZONE || '').trim();
+
+        // Prefer the configured PocketAgent timezone; fall back to system if missing.
+        let sys = '';
+        try {
+          sys = execFileSync('timedatectl', ['show', '-p', 'Timezone', '--value'], { encoding: 'utf8' }).trim();
+        } catch {}
+
+        const tz = iana || sys || 'UTC';
+        const now = new Date();
+        const local = (() => {
+          try {
+            return new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', hour: 'numeric', minute: '2-digit' }).format(now);
+          } catch {
+            return null;
+          }
+        })();
+
+        if (local) {
+          await say(`Timezone is set to ${tz}. Right now it is ${local}.`);
+        } else {
+          await say(`Timezone is set to ${tz}.`);
+        }
+        return;
+      } catch (e) {
+        console.error('[PocketAgent] get_timezone failed:', e?.message ?? e);
+        await say("I had trouble reading the timezone. Check the logs.");
         return;
       }
     } else if (routed?.intent === 'set_volume') {
