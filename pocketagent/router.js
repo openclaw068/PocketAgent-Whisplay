@@ -85,6 +85,8 @@ export async function routeUtterance({ baseUrl, apiKeyEnv, model, text, hasLastN
 
     'REMINDERS RULES: ' +
     'IMPORTANT: If the user says anything like "remind me" / "set a reminder" / "remind" / "don\'t let me forget" / "remember to" AND includes a time, then intent MUST be "create_reminder". ' +
+    'CRITICAL: If the user says anything like "mark the reminder", "mark as done", "complete the reminder", "finish the reminder", "I did the reminder", "reminder done", "reminder complete" - even WITHOUT mentioning a specific reminder ID - intent MUST be "ack_reminder". ' +
+    'When user says "mark the reminder about X as done" or "mark X reminder as done" where X is a description (like "trash", "garbage", "laundry"), intent MUST be "ack_reminder" with ackTarget="by_text" and ackText containing the description. ' +
     'If the user says "remember" but does NOT provide a time and is phrasing it like a fact (e.g. "remember I put my balance board in the guest closet"), choose semantic memory (remember_fact), not create_reminder. ' +
     'IMPORTANT: If the user is answering a follow-up timing question with something like "every 5 minutes", "every five minutes", "every hour", etc., set intent="unknown" (do NOT change defaults). ' +
     'Only choose intent="update_followup_defaults" when the user clearly says they want to change DEFAULTS (e.g. "set my default follow-ups to every 5 minutes"). ' +

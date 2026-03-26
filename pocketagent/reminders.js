@@ -132,13 +132,16 @@ export class ReminderEngine {
     this.notifyFn = notifyFn;
 
     const now = Date.now();
+    const overdueReminders = [];
+    
     // schedule all open reminders, but also handle overdue reminders + resume follow-ups
     for (const r of this.listOpen()) {
       const dueMs = new Date(r.dueAtIso).getTime();
 
       // If overdue and never notified, fire ASAP.
+      // This handles the case where device was off/died and missed reminders.
       if (!Number.isNaN(dueMs) && dueMs <= now && !r.lastNotifiedAtIso) {
-        setTimeout(() => this._fire(r.id), 1000);
+        overdueReminders.push(r);
         continue;
       }
 
@@ -155,6 +158,18 @@ export class ReminderEngine {
       if (r.lastNotifiedAtIso && r.followupEveryMin && r.followupEveryMin > 0) {
         this._scheduleFollowup(r);
       }
+    }
+
+    // Fire overdue reminders with a small stagger to avoid all firing at once
+    // This handles the case where device was off/died and missed reminders.
+    if (overdueReminders.length > 0) {
+      console.log(`[ReminderEngine] Found ${overdueReminders.length} overdue reminders on startup, firing them now`);
+      overdueReminders.forEach((r, i) => {
+        setTimeout(() => {
+          console.log(`[ReminderEngine] Firing overdue reminder: ${r.text} (was due at ${r.dueAtIso})`);
+          this._fire(r.id);
+        }, (i + 1) * 1500); // 1.5s stagger between each
+      });
     }
   }
 

@@ -486,8 +486,8 @@ startNotifyServer();
 })();
 
 async function maybeAnnounceStartupOncePerBoot() {
-  if ((process.env.POCKETAGENT_STARTUP_ANNOUNCE ?? 'false').toLowerCase() !== 'true') return;
-  if (DEFAULTS.mode !== 'chat') return;
+  // Enable startup announcement by default for both chat and reminders modes
+  if ((process.env.POCKETAGENT_STARTUP_ANNOUNCE ?? 'true').toLowerCase() !== 'true') return;
 
   const bootIdPath = '/proc/sys/kernel/random/boot_id';
   let bootId = null;

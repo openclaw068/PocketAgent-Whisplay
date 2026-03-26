@@ -27,12 +27,14 @@ if [[ "$count" == "0" ]]; then
   exit 0
 fi
 
-# Sort by dueAtIso and take the earliest
+# Sort by dueAtIso and take the most recent (last in sorted order).
+# "Most recent" means the one furthest in the future or most overdue.
+# We sort descending to get the latest reminder.
 # Format dueAtIso into local time (AM/PM) using the configured timezone.
 # jq's strftime is UTC-based; use `date` with TZ for correct local time.
 tz="${POCKETAGENT_TIMEZONE:-${TZ:-America/Chicago}}"
 
-next=$(printf '%s' "$json" | jq -r '.reminders | sort_by(.dueAtIso) | .[0] | {text, dueAtIso}')
+next=$(printf '%s' "$json" | jq -r '.reminders | sort_by(.dueAtIso) | .[-1] | {text, dueAtIso}')
 rem_text=$(printf '%s' "$next" | jq -r '.text')
 due_iso=$(printf '%s' "$next" | jq -r '.dueAtIso | sub("\\.\\d+Z$"; "Z")')
 due_human=$(TZ="$tz" date -d "$due_iso" "+%A at %-I:%M %p")
