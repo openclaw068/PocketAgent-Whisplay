@@ -239,6 +239,7 @@ const server = http.createServer(async (req, res) => {
       const id = String(body?.id || '').trim();
       if (!id) return json(res, 400, { ok: false, error: 'missing id' });
       const r = engine.acknowledge(id);
+      if (!r) return json(res, 404, { ok: false, error: 'not found' });
       return json(res, 200, { ok: true, reminder: r });
     }
 

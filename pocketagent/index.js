@@ -257,12 +257,17 @@ async function listenForAck({ secondsMax = 5 }) {
 }
 
 function isAck(text) {
-  return /\b(yes|yeah|yep|done|did it|i did|completed)\b/i.test(text);
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  // Reject negative contexts ("no", "not yet", "haven't done it", etc.)
+  if (/\b(not|no|haven't|have not|didn't|did not|havent|dont|don't)\b/i.test(t)) return false;
+  // Only accept bare acknowledgements (short, positive)
+  return /^(yes|yep?|yeah|done|completed|i did|did it)[.!]?$/i.test(t);
 }
 
 async function notifyAndMaybeAck({ id, text, kind }) {
   const k = String(kind || '').toLowerCase();
-  const isReminderish = (k === 'due' || k === 'reminder');
+  const isReminderish = (k === 'due' || k === 'reminder' || k === 'followup');
 
   // Non-reminder notifications (battery/info/etc) should be spoken verbatim with no "did you do it" prompt.
   if (!isReminderish) {
@@ -274,9 +279,11 @@ async function notifyAndMaybeAck({ id, text, kind }) {
   // Track which reminder we most recently spoke, so "done" can clear the right one.
   runtime.state.lastNotifiedReminderId = id;
 
-  const prompt = k === 'due'
-    ? `Reminder: ${text}. Did you do it?`
-    : `Reminder: ${text}. Did you do it yet?`;
+  const prompt = k === 'followup'
+    ? `Reminder follow-up: ${text}. Did you do it?`
+    : k === 'due'
+      ? `Reminder: ${text}. Did you do it?`
+      : `Reminder: ${text}. Did you do it yet?`;
 
   void displayUpdate({ status: 'speaking', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
   await say(prompt);
@@ -296,7 +303,21 @@ async function notifyAndMaybeAck({ id, text, kind }) {
     }
 
     if (isAck(heard)) {
-      await remindersPost('/reminders/ack', { id });
+      try {
+        const all = await remindersGet('/reminders/all');
+        const cur = (all?.json?.reminders || []).find(x => x.id === id);
+        if (cur?.isRecurring && cur.rrule) {
+          const { nextFromRRule } = await import('./recurrence.js');
+          const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+          if (nextDueAtIso) await remindersPost('/reminders/ack_and_reschedule', { id, nextDueAtIso });
+          else await remindersPost('/reminders/ack', { id });
+        } else {
+          await remindersPost('/reminders/ack', { id });
+        }
+      } catch {
+        await remindersPost('/reminders/ack', { id });
+      }
+      if (runtime.state.lastNotifiedReminderId === id) runtime.state.lastNotifiedReminderId = null;
       await say("Awesome — I’ll take it off the list.");
     }
   }
@@ -604,10 +625,12 @@ async function oneTurn({ abortSignal = null } = {}) {
   console.log('Heard:', text);
   void displayUpdate({ status: 'transcribing', line1: 'You', line2: String(text || '').slice(0, 160) });
 
-  // Fast-path: if the user says "done"/"yes" after a reminder fired, ack the latest reminder.
+  // Fast-path: if the user says a BARE "done"/"yes" after a reminder fired, ack the latest reminder.
   // This avoids router misclassification and makes PTT acknowledgement reliable.
+  // Strictly gated: never runs while a pending flow (e.g., reminder creation) is in progress,
+  // and only for short, bare acknowledgements (isAck rejects negations and longer utterances).
   try {
-    if (runtime.state.lastNotifiedReminderId && isAck(text || '')) {
+    if (!runtime.state?.pending?.kind && runtime.state.lastNotifiedReminderId && isAck(text || '')) {
       const id = runtime.state.lastNotifiedReminderId;
       console.log('[PocketAgent] ack latest (fast-path):', { id, heard: String(text || '').trim() });
       try {
@@ -624,6 +647,8 @@ async function oneTurn({ abortSignal = null } = {}) {
       } catch {
         await remindersPost('/reminders/ack', { id });
       }
+      // Clear so subsequent "yes" replies don't re-ack a stale reminder.
+      runtime.state.lastNotifiedReminderId = null;
       await say('Nice — I’ll mark that as done.');
       return;
     }
@@ -1563,7 +1588,23 @@ async function oneTurn({ abortSignal = null } = {}) {
 
   if (result.intent === 'ack_latest') {
     const id = runtime.state.lastNotifiedReminderId;
-    if (id) await remindersPost('/reminders/ack', { id });
+    if (id) {
+      try {
+        const all = await remindersGet('/reminders/all');
+        const cur = (all?.json?.reminders || []).find(x => x.id === id);
+        if (cur?.isRecurring && cur.rrule) {
+          const { nextFromRRule } = await import('./recurrence.js');
+          const nextDueAtIso = nextFromRRule({ rrule: cur.rrule, dtStart: new Date(cur.dueAtIso), after: new Date(), tz: cur.timezone ?? null });
+          if (nextDueAtIso) await remindersPost('/reminders/ack_and_reschedule', { id, nextDueAtIso });
+          else await remindersPost('/reminders/ack', { id });
+        } else {
+          await remindersPost('/reminders/ack', { id });
+        }
+      } catch {
+        await remindersPost('/reminders/ack', { id });
+      }
+      runtime.state.lastNotifiedReminderId = null;
+    }
     await say(result.say);
     return;
   }

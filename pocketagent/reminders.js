@@ -71,23 +71,49 @@ export class ReminderEngine {
     const r = this.state.reminders.find(x => x.id === id);
     if (!r) return null;
 
+    // Track whether the patch changes anything that should reset follow-up state.
+    let followupRelevantChange = false;
+
     // Apply supported patches
     if (patch.text != null) r.text = String(patch.text);
-    if (patch.dueAtIso != null) r.dueAtIso = String(patch.dueAtIso);
+    if (patch.dueAtIso != null && String(patch.dueAtIso) !== r.dueAtIso) {
+      r.dueAtIso = String(patch.dueAtIso);
+      followupRelevantChange = true;
+    }
 
-    if (patch.followupMode !== undefined) r.followupMode = patch.followupMode;
-    if (patch.followupEveryMin !== undefined) r.followupEveryMin = patch.followupEveryMin === null ? null : Number(patch.followupEveryMin);
-    if (patch.followupMaxCount !== undefined) r.followupMaxCount = patch.followupMaxCount === null ? null : Number(patch.followupMaxCount);
-    if (patch.followupQuietHours !== undefined) r.followupQuietHours = patch.followupQuietHours;
+    if (patch.followupMode !== undefined && patch.followupMode !== r.followupMode) {
+      r.followupMode = patch.followupMode;
+      followupRelevantChange = true;
+    }
+    if (patch.followupEveryMin !== undefined) {
+      const v = patch.followupEveryMin === null ? null : Number(patch.followupEveryMin);
+      if (v !== r.followupEveryMin) {
+        r.followupEveryMin = v;
+        followupRelevantChange = true;
+      }
+    }
+    if (patch.followupMaxCount !== undefined) {
+      const v = patch.followupMaxCount === null ? null : Number(patch.followupMaxCount);
+      if (v !== r.followupMaxCount) {
+        r.followupMaxCount = v;
+        followupRelevantChange = true;
+      }
+    }
+    if (patch.followupQuietHours !== undefined && JSON.stringify(patch.followupQuietHours) !== JSON.stringify(r.followupQuietHours)) {
+      r.followupQuietHours = patch.followupQuietHours;
+      followupRelevantChange = true;
+    }
 
-    // Reset follow-up counters if relevant settings changed
-    r.followupCount = 0;
-    r.lastNotifiedAtIso = null;
-    r.followupAskedAtIso = null;
+    // Only reset follow-up counters if the due time or follow-up settings actually changed.
+    if (followupRelevantChange) {
+      r.followupCount = 0;
+      r.lastNotifiedAtIso = null;
+      r.followupAskedAtIso = null;
+    }
 
     this.save();
     this._scheduleReminder(r);
-    this._cancelFollowup(r.id);
+    if (followupRelevantChange) this._cancelFollowup(r.id);
 
     return r;
   }
