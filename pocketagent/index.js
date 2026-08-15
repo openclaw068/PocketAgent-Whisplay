@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { DEFAULTS } from './config.js';
 import { recordToWav, playWav, runHook } from './audio.js';
 import { whisperTranscribe, ttsToAudio, chat as openaiChat, embed } from './openai.js';
@@ -202,24 +205,41 @@ async function say(text) {
         await wifiOff({ iface: wifiIface });
       }
     }
-    const out = path.join(DATA_DIR, 'tts.wav');
-    fs.writeFileSync(out, audio);
-    // Repair WAV header quirks (we've seen invalid length fields that cause quiet/distorted playback).
-    // Re-encode in-place via sox to ensure a clean PCM WAV container.
-    try {
-      // Requires: sudo apt-get install -y sox
-      execFileSync('sox', [out, '-r', '24000', '-c', '1', '-b', '16', out + '.fixed.wav']);
-      fs.renameSync(out + '.fixed.wav', out);
-    } catch (e) {
-      console.warn('[PocketAgent] sox wav-fix failed (continuing):', e?.message || e);
-    }
-
-    // Quick sanity check to avoid blasting static if the provider returns MP3/etc.
-    if (!audio?.slice?.(0, 4)?.equals?.(Buffer.from('RIFF')) && !(contentType || '').includes('wav')) {
+    // Sanity-check the payload BEFORE we spend CPU re-encoding it. (This check
+    // used to run after sox and inspect the pre-conversion buffer while playing
+    // the post-conversion file, so it could either fire spuriously or not at all.)
+    const looksWav = audio?.subarray?.(0, 4)?.equals?.(Buffer.from('RIFF')) === true;
+    if (!looksWav && !(contentType || '').includes('wav')) {
       throw new Error(`TTS did not return WAV (content-type=${contentType || 'unknown'})`);
     }
 
-    await playWav({ wavPath: out, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+    // Unique filenames: a fixed 'tts.wav' means two overlapping utterances
+    // (e.g. a reminder firing mid-turn) clobber each other's audio.
+    const stamp = `${Date.now()}-${process.pid}`;
+    const out = path.join(DATA_DIR, `tts-${stamp}.wav`);
+    const fixed = path.join(DATA_DIR, `tts-${stamp}.fixed.wav`);
+    fs.writeFileSync(out, audio);
+
+    // Repair WAV header quirks (invalid length fields cause quiet/distorted playback).
+    // Requires: sudo apt-get install -y sox
+    //
+    // Async on purpose: execFileSync blocks the event loop, and on a Pi Zero 2 W
+    // this re-encode is long enough to stall GPIO handling and the notify server
+    // on every single utterance.
+    let playPath = out;
+    try {
+      await execFileAsync('sox', [out, '-r', '24000', '-c', '1', '-b', '16', fixed]);
+      playPath = fixed;
+    } catch (e) {
+      console.warn('[PocketAgent] sox wav-fix failed (playing raw):', e?.message || e);
+    }
+
+    try {
+      await playWav({ wavPath: playPath, cmd: DEFAULTS.playbackCommand, device: DEFAULTS.playbackDevice });
+    } finally {
+      // Clean up both temp files so DATA_DIR doesn't accumulate WAVs forever.
+      for (const p of [out, fixed]) { try { fs.unlinkSync(p); } catch {} }
+    }
 
     // Return to idle once audio playback ends.
     void displayUpdate({ status: 'idle', line1: 'PocketAgent', line2: spoken.slice(0, 160) });

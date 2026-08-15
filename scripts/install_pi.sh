@@ -56,6 +56,7 @@ apt-get install -y --no-install-recommends \
   python3 \
   python3-pil \
   python3-spidev \
+  python3-numpy \
   raspi-config \
   netcat-openbsd \
   jq
@@ -87,11 +88,24 @@ if [[ "${INSTALL_PISUGAR_NORM}" == "y" || "${INSTALL_PISUGAR_NORM}" == "yes" || 
   echo "[install_pi] Socket should exist: /tmp/pisugar-server.sock"
 fi
 
-# Node.js: install Node 20+ via NodeSource if missing.
+# Node.js: install Node 22 LTS via NodeSource if missing or too old.
+# Node 20 has reached end-of-life; 22 is the current LTS line.
+NODE_MAJOR_REQUIRED=22
+need_node=0
 if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js not found. Installing Node.js 20.x (NodeSource)…"
+  need_node=1
+else
+  current_major=$(node -v | sed 's/^v\([0-9]*\).*/\1/')
+  if [ "${current_major:-0}" -lt "$NODE_MAJOR_REQUIRED" ]; then
+    echo "Node.js v${current_major} is older than required v${NODE_MAJOR_REQUIRED}; upgrading…"
+    need_node=1
+  fi
+fi
+
+if [ "$need_node" -eq 1 ]; then
+  echo "Installing Node.js ${NODE_MAJOR_REQUIRED}.x (NodeSource)…"
   apt-get install -y --no-install-recommends curl
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR_REQUIRED}.x" | bash -
   apt-get install -y --no-install-recommends nodejs
 fi
 

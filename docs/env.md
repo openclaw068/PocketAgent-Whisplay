@@ -123,3 +123,35 @@ POCKETAGENT_BATTERY_WARN_ONLY_ON_BATTERY=true
 # Use vendored driver by default (prevents GPIO17 contention w/ PocketAgent)
 WHISPLAY_DRIVER_PATH=/opt/pocketagent/whisplay/driver
 ```
+
+## Battery telemetry (added for early-shutoff diagnosis)
+
+| Var | Default | Purpose |
+|---|---|---|
+| `POCKETAGENT_BATTERY_LOG` | `true` | Append percent/voltage/current to a CSV each poll |
+| `POCKETAGENT_BATTERY_LOG_PATH` | `./data/battery-telemetry.csv` | Where to write it |
+| `POCKETAGENT_BATTERY_LOG_MAX_BYTES` | `5000000` | Rotate to `.1` above this size |
+
+Rows are `fsync`'d individually so the readings immediately preceding a hard
+power cut are not lost in the page cache. `# boot <iso>` marker lines are
+written at startup — the row directly *before* a marker is the last reading
+before the device lost power.
+
+**Reading the log after a cut:**
+
+```bash
+tail -20 /opt/pocketagent/data/battery-telemetry.csv
+```
+
+- If `voltage_v` is still healthy (>3.5V) at the moment of cutoff, the shutdown
+  was almost certainly a *software* soft-poweroff, not a brownout — check
+  `auto_shutdown_level` in `/etc/pisugar-server/config.json`.
+- If `voltage_v` is sagging toward ~3.2V, the cell really is depleted and the
+  reported percent is miscalibrated — fix with a `battery_curve` in the same file.
+
+## Web tester
+
+| Var | Default | Purpose |
+|---|---|---|
+| `POCKETAGENT_WEB_HOST` | `127.0.0.1` | Bind address. Was previously `0.0.0.0` (LAN-exposed) |
+| `POCKETAGENT_WEB_ACCESS_KEY` | unset | Required for `/api/turn` when `NODE_ENV=production` |

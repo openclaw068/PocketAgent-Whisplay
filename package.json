@@ -8,11 +8,15 @@
     "start": "node pocketagent/index.js",
     "dev": "node pocketagent/index.js",
     "web": "node web/server.js",
-    "lint": "node -c pocketagent/index.js"
+    "lint": "node -c pocketagent/index.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "node-record-lpcm16": "^1.0.1",
     "node-schedule": "^2.1.1",
     "rrule": "^2.8.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

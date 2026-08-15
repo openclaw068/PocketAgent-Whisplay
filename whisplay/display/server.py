@@ -524,8 +524,14 @@ def render_frame(s: dict, t: float):
     return img.convert("RGB")
 
 
-def rgb888_to_rgb565_bytes(img) -> bytes:
-    """Convert PIL RGB image to RGB565 big-endian byte stream (as used by PiSugar examples)."""
+def _rgb888_to_rgb565_bytes_slow(img) -> bytes:
+    """Pure-Python fallback. Only used if numpy is unavailable.
+
+    This is ~2 orders of magnitude slower than the numpy path: it does a Python
+    -level tuple unpack, bit twiddle and two bytearray appends for every one of
+    the W*H pixels. On a Pi Zero 2 W that is hundreds of ms per frame, which at
+    the default ACTIVE_FPS pegs a core continuously. Install python3-numpy.
+    """
     img = img.convert("RGB")
     px = img.load()
     out = bytearray()
@@ -536,6 +542,36 @@ def rgb888_to_rgb565_bytes(img) -> bytes:
             out.append((rgb565 >> 8) & 0xFF)
             out.append(rgb565 & 0xFF)
     return bytes(out)
+
+
+def _rgb888_to_rgb565_bytes_fast(img) -> bytes:
+    """Vectorized RGB888 -> RGB565 big-endian conversion via numpy.
+
+    Identical output to the slow path, but the whole frame is converted in a
+    handful of array ops instead of W*H interpreted-loop iterations.
+    """
+    arr = _np.asarray(img.convert("RGB"), dtype=_np.uint8)
+    r = arr[:, :, 0].astype(_np.uint16)
+    g = arr[:, :, 1].astype(_np.uint16)
+    b = arr[:, :, 2].astype(_np.uint16)
+
+    rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+    # '>u2' = big-endian uint16, matching the byte order the panel expects.
+    return rgb565.astype(">u2").tobytes()
+
+
+try:
+    import numpy as _np
+    rgb888_to_rgb565_bytes = _rgb888_to_rgb565_bytes_fast
+except Exception:  # pragma: no cover - depends on host packages
+    _np = None
+    rgb888_to_rgb565_bytes = _rgb888_to_rgb565_bytes_slow
+    sys.stdout.write(
+        "[display] WARNING: numpy not found; using slow pixel conversion. "
+        "Install it with: sudo apt-get install -y python3-numpy\n"
+    )
+    sys.stdout.flush()
 
 
 def is_active_status(status: str) -> bool:
@@ -574,6 +610,7 @@ class WhisplayBackend(DisplayBackend):
         self.board = None
         self._asleep = False
         self._last_bl = None
+        self._last_px = None  # last frame pushed to SPI, for change detection
         self._init_driver()
 
     def _init_driver(self):
@@ -639,8 +676,18 @@ class WhisplayBackend(DisplayBackend):
         try:
             frame = render_frame(s, time.time())
             px = rgb888_to_rgb565_bytes(frame)
-            # PiSugar examples pass a Python list of bytes
-            self.board.draw_image(0, 0, W, H, list(px))
+
+            # Skip the SPI write entirely if the frame is byte-identical to the
+            # last one. Idle/static states re-render the same image repeatedly;
+            # pushing ~134KB over SPI to change nothing is pure battery drain.
+            if px == self._last_px:
+                return
+            self._last_px = px
+
+            # NOTE: pass bytes directly. The PiSugar examples wrap this in
+            # list(), which expands ~134KB into a Python list of ~134k ints on
+            # every frame. spidev.writebytes2 accepts a bytes-like object.
+            self.board.draw_image(0, 0, W, H, px)
         except Exception as e:
             sys.stdout.write(f"[display] draw failed: {e}\n")
             sys.stdout.flush()

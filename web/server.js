@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+// Bind loopback by default. Previously this listened on 0.0.0.0, exposing the
+// tester (which can create/delete reminders and change volume) to the whole
+// LAN. Set POCKETAGENT_WEB_HOST=0.0.0.0 to opt in deliberately.
+const HOST = process.env.POCKETAGENT_WEB_HOST || '127.0.0.1';
 const DATA_DIR = process.env.POCKETAGENT_DATA_DIR || path.join(__dirname, '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -75,7 +80,14 @@ function requireAccessKey(req) {
   // Secure-by-default in production: require an access key.
   if (!expected) return process.env.NODE_ENV !== 'production';
   const got = req.headers['x-access-key'];
-  return typeof got === 'string' && got === expected;
+  if (typeof got !== 'string') return false;
+
+  // Constant-time compare so the key can't be recovered byte-by-byte by
+  // timing repeated requests. Hash first so differing lengths are safe to
+  // pass to timingSafeEqual (which throws on length mismatch).
+  const a = crypto.createHash('sha256').update(got).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 function readBody(req) {
@@ -176,6 +188,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`PocketAgent web tester listening on :${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`PocketAgent web tester listening on ${HOST}:${PORT}`);
+  if (HOST === '0.0.0.0' && !process.env.POCKETAGENT_WEB_ACCESS_KEY) {
+    console.warn('[web] WARNING: bound to all interfaces with no POCKETAGENT_WEB_ACCESS_KEY set.');
+  }
 });
