@@ -1,20 +1,30 @@
 """
 PocketAgent robot face renderer.
 
-An original character design: rounded dome head, angular glowing eyes, minimal
-features, dark background. Drawn procedurally — no image assets to ship.
+An original mechanical character: a machined chassis with panel seams, bolts and
+side actuator modules, a dark inset visor housing glowing optics, and a vocoder
+grille that reacts while speaking.
 
-Design notes
+Architecture
 ------------
-* The face layer is drawn at SUPERSAMPLE x resolution and downscaled with
-  LANCZOS. PIL has no antialiasing on ellipse/arc/polygon, and at 240x280 the
-  jaggies on a curved head are very obvious. Downscaling is done in C and is
-  cheap relative to how much better it looks.
-* Backgrounds are cached per accent colour. They are static, so rebuilding one
-  every frame would be pure waste on a Pi Zero 2 W.
-* Everything is expression-driven: `EXPRESSIONS` maps a status to eye/mouth
-  shape parameters, so tuning the face means editing that table, not the
-  drawing code.
+The hard constraint is a Pi Zero 2 W driving a 240x280 SPI panel at ~10 FPS, so
+nothing expensive may happen per frame.
+
+The trick is separating *structure* from *motion*:
+
+  * Structure (chassis, visor, optics, bolts, vents) never changes shape. It is
+    drawn ONCE at SUPERSAMPLE resolution, downscaled, and cached as a sprite.
+  * Motion (head tilt, gaze direction, bob, vocoder levels) is applied as cheap
+    transforms — a paste offset, a rotation of an already-rendered sprite, a few
+    solid rectangles.
+
+That keeps the robot genuinely animated and continuous rather than a handful of
+frozen poses, while per-frame cost stays close to a memcpy.
+
+Motion comes from `_motion()`, a small state machine over time: idle sway with
+periodic gaze saccades, an alert lean when listening, upward scanning while
+thinking, rhythmic nodding while speaking, an excited bounce for reminders, and
+a shake for errors.
 """
 
 from __future__ import annotations
@@ -23,29 +33,37 @@ import math
 import os
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw, ImageFilter, ImageChops
 except Exception:  # pragma: no cover
-    Image = ImageDraw = ImageFilter = None
+    Image = ImageDraw = ImageFilter = ImageChops = None
 
 
 # --- Tunables -----------------------------------------------------------
-# Supersampling factor for the face layer. 2 is a good quality/cost balance;
-# set to 1 on very constrained hardware to skip the downscale entirely.
 SUPERSAMPLE = int(os.environ.get("POCKETAGENT_FACE_SUPERSAMPLE", "2"))
-
-# Enable the soft glow pass behind the eyes. Costs one gaussian blur per frame.
 GLOW = (os.environ.get("POCKETAGENT_FACE_GLOW", "true").lower() == "true")
+MOTION = (os.environ.get("POCKETAGENT_FACE_MOTION", "true").lower() == "true")
 
-# The shell deliberately does NOT start at pure white: a white specular
-# highlight is invisible against a white surface, and the panel is RGB565 so
-# there is little headroom at the top of the range anyway.
-SHELL_LIGHT = (226, 231, 238)
-SHELL_MID = (196, 203, 213)
-SHELL_DARK = (132, 141, 156)
-SHELL_RIM = (78, 86, 100)
+# Head rotation is quantised to this many degrees so the rotated-sprite cache
+# stays bounded. 1.5 deg is below the point where stepping is visible here.
+TILT_STEP = 1.5
+TILT_MAX = 7.0
+
+# Metal palette. Deliberately not pure white: a white specular highlight is
+# invisible on a white surface, and RGB565 has little headroom at the top.
+METAL_HI = (232, 237, 244)
+METAL_MID = (188, 196, 208)
+METAL_LO = (128, 137, 152)
+METAL_EDGE = (74, 82, 96)
+SEAM = (108, 117, 132)
+BOLT = (150, 159, 173)
+BOLT_DARK = (86, 94, 108)
+
+VISOR_BG = (14, 17, 24)
+VISOR_RIM = (58, 65, 78)
+GRILLE_BG = (38, 43, 54)
+GRILLE_OFF = (64, 72, 88)
 
 
-# Accent colour per status. Drives eyes, antenna tip and background glow.
 ACCENTS = {
     "idle":         (120, 230, 130),
     "listening":    (90, 210, 255),
@@ -56,21 +74,17 @@ ACCENTS = {
     "error":        (255, 105, 105),
 }
 
-
-# Expression table.
-#   eye:   'happy'  upward crescent  (content / default)
-#          'wide'   full rounded eye (alert, listening)
-#          'narrow' squinted bar     (thinking, working)
-#          'flat'   angled down      (error)
-#   mouth: 'smile' | 'grin' | 'small' | 'flat' | 'talk'
-EXPRESSIONS = {
-    "idle":         {"eye": "happy",  "mouth": "smile"},
-    "listening":    {"eye": "wide",   "mouth": "small"},
-    "transcribing": {"eye": "narrow", "mouth": "small"},
-    "thinking":     {"eye": "narrow", "mouth": "small"},
-    "speaking":     {"eye": "happy",  "mouth": "talk"},
-    "reminder":     {"eye": "wide",   "mouth": "grin"},
-    "error":        {"eye": "flat",   "mouth": "flat"},
+# Optic shape per status.
+#   'round' full lens (alert) | 'happy' upward crescent (content)
+#   'slit'  narrow bar (working) | 'cross' X (fault)
+OPTICS = {
+    "idle":         "happy",
+    "listening":    "round",
+    "transcribing": "slit",
+    "thinking":     "slit",
+    "speaking":     "happy",
+    "reminder":     "round",
+    "error":        "cross",
 }
 
 
@@ -78,8 +92,47 @@ def accent_for(status: str):
     return ACCENTS.get((status or "idle").lower(), ACCENTS["idle"])
 
 
-def expression_for(status: str):
-    return EXPRESSIONS.get((status or "idle").lower(), EXPRESSIONS["idle"])
+def optic_for(status: str):
+    return OPTICS.get((status or "idle").lower(), "happy")
+
+
+# --- Helpers ------------------------------------------------------------
+
+def _soft(size, color, alpha, draw_fn, blur):
+    """Blurred solid-colour shape with no dark edge fringing.
+
+    Blurring an RGBA image blurs RGB too, and transparent pixels carry RGB
+    (0,0,0) — so the blur drags black into every edge and a white highlight
+    comes out grey. Blurring ONLY the alpha channel avoids that.
+    """
+    mask = Image.new("L", size, 0)
+    draw_fn(ImageDraw.Draw(mask))
+    if blur > 0 and ImageFilter is not None:
+        mask = mask.filter(ImageFilter.GaussianBlur(radius=blur))
+    if alpha < 255:
+        mask = mask.point(lambda v: (v * alpha) // 255)
+    layer = Image.new("RGBA", size, tuple(color) + (0,))
+    layer.putalpha(mask)
+    return layer
+
+
+def _vgrad(size, top, bottom, ease=1.0):
+    """Vertical gradient (cheap: build one column, then resize)."""
+    w, h = size
+    col = Image.new("RGB", (1, h))
+    px = col.load()
+    for i in range(h):
+        f = (i / max(1, h - 1)) ** ease
+        px[0, i] = tuple(int(top[c] + (bottom[c] - top[c]) * f) for c in range(3))
+    return col.resize((w, h))
+
+
+def _hash01(n: int) -> float:
+    """Deterministic pseudo-random in [0,1) — gaze looks unpredictable but is
+    identical across reboots, so behaviour is reproducible when debugging."""
+    n = (n * 1103515245 + 12345) & 0x7FFFFFFF
+    n = ((n ^ (n >> 13)) * 1274126177) & 0x7FFFFFFF
+    return (n & 0xFFFF) / 65536.0
 
 
 # --- Background ---------------------------------------------------------
@@ -88,318 +141,454 @@ _BG_CACHE: dict = {}
 
 
 def build_background(w: int, h: int, accent, seed: int = 7):
-    """Dark vertical gradient + faint starfield + a soft accent glow.
-
-    Replaces the previous photo background (hyperion.jpg), which fought with
-    the face for contrast and had to be darkened by 70/255 to stay readable.
-    A generated background costs no disk, scales to any panel size, and lets
-    the accent colour carry the device's state.
-    """
+    """Dark gradient + starfield + soft accent glow. Cached per accent."""
     if Image is None:
         raise RuntimeError("PIL not installed (install python3-pil)")
 
     key = (w, h, tuple(accent), seed)
-    cached = _BG_CACHE.get(key)
-    if cached is not None:
-        return cached
+    hit = _BG_CACHE.get(key)
+    if hit is not None:
+        return hit
 
-    img = Image.new("RGB", (w, h), (8, 10, 16))
+    img = _vgrad((w, h), (17, 21, 33), (5, 6, 11), ease=0.85)
     d = ImageDraw.Draw(img)
 
-    # Vertical gradient: slightly lifted at the top, near-black at the bottom.
-    top = (16, 20, 32)
-    bottom = (5, 6, 11)
-    for y in range(h):
-        f = y / max(1, h - 1)
-        d.line(
-            [(0, y), (w, y)],
-            fill=(
-                int(top[0] + (bottom[0] - top[0]) * f),
-                int(top[1] + (bottom[1] - top[1]) * f),
-                int(top[2] + (bottom[2] - top[2]) * f),
-            ),
-        )
-
-    # Deterministic starfield — same stars every boot, no RNG import needed.
     rnd = seed
     for _ in range(46):
         rnd = (rnd * 1103515245 + 12345) & 0x7FFFFFFF
         x = rnd % w
         rnd = (rnd * 1103515245 + 12345) & 0x7FFFFFFF
-        y = rnd % int(h * 0.78)
+        y = rnd % int(h * 0.8)
         rnd = (rnd * 1103515245 + 12345) & 0x7FFFFFFF
         v = 70 + (rnd % 130)
         d.point((x, y), fill=(v, v, min(255, v + 18)))
 
-    # Soft accent glow behind where the head sits, so state reads even at a
-    # glance from across the room.
     glow = Image.new("RGB", (w, h), (0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gx, gy, gr = w // 2, int(h * 0.46), int(w * 0.46)
-    gd.ellipse((gx - gr, gy - gr, gx + gr, gy + gr),
-               fill=(accent[0] // 7, accent[1] // 7, accent[2] // 7))
+    gx, gy, gr = w // 2, int(h * 0.44), int(w * 0.5)
+    ImageDraw.Draw(glow).ellipse((gx - gr, gy - gr, gx + gr, gy + gr),
+                                 fill=(accent[0] // 7, accent[1] // 7, accent[2] // 7))
     if ImageFilter is not None:
-        glow = glow.filter(ImageFilter.GaussianBlur(radius=26))
-
-    img = Image.blend(img, Image.blend(img, glow, 0.0), 0.0)
-    img = _screen(img, glow)
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=28))
+    img = ImageChops.screen(img, glow)
 
     _BG_CACHE[key] = img
     return img
 
 
-def _screen(base, layer):
-    """Screen blend — brightens without washing out the darks."""
-    import operator
-    from PIL import ImageChops
-    return ImageChops.screen(base, layer)
+# --- Chassis ------------------------------------------------------------
+
+_CHASSIS_CACHE: dict = {}
 
 
-# --- Face ---------------------------------------------------------------
+def _build_chassis(size, alpha):
+    """The static machined head: shell, seams, bolts, ear modules, visor recess,
+    vocoder housing and antenna.
 
-
-def _soft_shape(size, color, alpha, draw_fn, blur_radius):
-    """Build a blurred solid-colour shape without dark edge fringing.
-
-    Blurring an RGBA layer directly also blurs the RGB channels, and fully
-    transparent pixels carry RGB (0,0,0) — so the blur pulls black into every
-    edge and a white highlight comes out as a grey smudge. Blurring ONLY the
-    alpha channel and keeping RGB flat avoids that entirely.
+    Fixed geometry, so it is built once and reused. The visor and grille
+    interiors are left empty — optics and vocoder bars are composited in per
+    frame so they can move and react independently of the head.
     """
-    mask = Image.new("L", size, 0)
-    draw_fn(ImageDraw.Draw(mask))
-    if blur_radius > 0 and ImageFilter is not None:
-        mask = mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-    if alpha < 255:
-        mask = mask.point(lambda v: (v * alpha) // 255)
-    layer = Image.new("RGBA", size, tuple(color) + (0,))
-    layer.putalpha(mask)
-    return layer
-
-
-def _eye_shape(d, cx, cy, rx, ry, kind, accent, s, side=1):
-    """Draw one eye.
-
-    `s` is the supersample factor (coords are already scaled).
-    `side` is -1 for the left eye, +1 for the right — needed for asymmetric
-    expressions. Deriving it from cx does not work: cx is an absolute canvas
-    coordinate and is always positive, so both eyes would tilt the same way.
-    """
-    a = accent
-    if kind == "wide":
-        d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=a)
-
-    elif kind == "happy":
-        # Upward crescent: an arc thick enough to read as a closed, smiling eye.
-        # This is the shape that makes the face unambiguously happy rather than
-        # neutral — a straight bar or a plain circle both read as blank.
-        box = (cx - rx, cy - ry, cx + rx, cy + ry * 2)
-        d.arc(box, start=190, end=350, fill=a, width=max(2, int(7 * s)))
-
-    elif kind == "narrow":
-        d.rounded_rectangle((cx - rx, cy - int(ry * 0.34), cx + rx, cy + int(ry * 0.34)),
-                            radius=int(ry * 0.34), fill=a)
-
-    elif kind == "flat":
-        # Angled down toward the centre — reads as concerned / alarmed.
-        # Inner edge low, outer edge high.
-        tilt = int(ry * 0.42)
-        th = int(ry * 0.42)
-        inner_y = cy + tilt
-        outer_y = cy - tilt
-        x_in, x_out = (cx + rx * side, cx - rx * side)
-        d.polygon(
-            [(x_out, outer_y), (x_in, inner_y),
-             (x_in, inner_y + th), (x_out, outer_y + th)],
-            fill=a,
-        )
-
-    else:  # blink
-        d.rounded_rectangle((cx - rx, cy - int(3 * s), cx + rx, cy + int(3 * s)),
-                            radius=int(3 * s), fill=a)
-
-
-def _mouth(d, cx, cy, kind, accent, phase, s):
-    """`phase` is a discrete 0-3 mouth-opening step (see draw_face)."""
-    w = int(30 * s)
-    if kind == "talk":
-        if phase < 1:
-            d.arc((cx - w, cy - int(6 * s), cx + w, cy + int(20 * s)),
-                  start=15, end=165, fill=accent, width=max(2, int(5 * s)))
-        elif phase < 2:
-            d.ellipse((cx - int(11 * s), cy - int(2 * s), cx + int(11 * s), cy + int(16 * s)),
-                      outline=accent, width=max(2, int(5 * s)))
-        elif phase < 3:
-            d.ellipse((cx - int(15 * s), cy - int(5 * s), cx + int(15 * s), cy + int(20 * s)),
-                      outline=accent, width=max(2, int(5 * s)))
-        else:
-            d.arc((cx - w, cy - int(4 * s), cx + w, cy + int(22 * s)),
-                  start=15, end=165, fill=accent, width=max(2, int(5 * s)))
-
-    elif kind == "grin":
-        d.arc((cx - w, cy - int(10 * s), cx + w, cy + int(22 * s)),
-              start=10, end=170, fill=accent, width=max(2, int(6 * s)))
-
-    elif kind == "small":
-        d.arc((cx - int(16 * s), cy - int(2 * s), cx + int(16 * s), cy + int(12 * s)),
-              start=20, end=160, fill=accent, width=max(2, int(4 * s)))
-
-    elif kind == "flat":
-        d.rounded_rectangle((cx - int(18 * s), cy + int(2 * s), cx + int(18 * s), cy + int(6 * s)),
-                            radius=int(2 * s), fill=accent)
-
-    else:  # smile
-        d.arc((cx - w, cy - int(8 * s), cx + w, cy + int(18 * s)),
-              start=15, end=165, fill=accent, width=max(2, int(5 * s)))
-
-
-# --- Sprite cache -------------------------------------------------------
-# The face only has a small number of *distinct* appearances: one per
-# (status, eye shape, mouth phase). Everything else that moves — the breathing
-# bob and the antenna pulse — is a translation or a single small dot.
-#
-# So each distinct appearance is drawn supersampled ONCE, downscaled, and
-# cached at final resolution. Per-frame cost then collapses to one paste plus
-# one small ellipse, instead of ~20 draw ops, three gaussian blurs and a
-# 4x-resolution downscale every single frame.
-
-_SPRITE_CACHE: dict = {}
-_SPRITE_CACHE_MAX = 48
-
-
-def _build_face_sprite(size, status, eye_kind, mouth_phase, eye_drift, face_alpha):
     W, H = size
     s = max(1, SUPERSAMPLE)
-    layer = Image.new("RGBA", (W * s, H * s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-
-    accent = accent_for(status)
-    expr = expression_for(status)
+    L = Image.new("RGBA", (W * s, H * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(L)
 
     cx = (W // 2) * s
-    cy = int(H * 0.44 * s)
-    rx = int(W * 0.30 * s)
-    ry = int(W * 0.335 * s)
+    cy = int(H * 0.43 * s)
+    hw = int(W * 0.315 * s)
+    hh = int(W * 0.30 * s)
+    r = int(20 * s)
+    lw = max(1, int(2 * s))
 
-    # --- Antenna stem (behind the head so it tucks in cleanly) ---
-    ax, ay = cx, cy - ry
-    d.line((ax, ay - int(2 * s), ax, ay - int(22 * s)),
-           fill=SHELL_DARK + (face_alpha,), width=max(1, int(3 * s)))
+    # --- Neck / pivot ----------------------------------------------------
+    nw = int(15 * s)
+    d.rounded_rectangle((cx - nw, cy + hh - int(6 * s), cx + nw, cy + hh + int(18 * s)),
+                        radius=int(5 * s), fill=METAL_LO + (alpha,),
+                        outline=METAL_EDGE + (alpha,), width=lw)
+    for i in range(3):
+        yy = cy + hh + int((2 + i * 5) * s)
+        d.line((cx - nw + int(4 * s), yy, cx + nw - int(4 * s), yy),
+               fill=METAL_EDGE + (alpha,), width=max(1, int(1.5 * s)))
 
-    # --- Head shell ---
-    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=SHELL_LIGHT + (face_alpha,))
-
-    # Vertical gradient across the shell, clipped to the head silhouette.
-    grad = Image.new("RGBA", (1, 2 * ry), (0, 0, 0, 0))
-    gp = grad.load()
-    for i in range(2 * ry):
-        f = i / max(1, 2 * ry - 1)
-        f = f * f  # ease: keep the crown bright, bunch falloff toward the jaw
-        col = tuple(int(SHELL_LIGHT[c] + (SHELL_DARK[c] - SHELL_LIGHT[c]) * f) for c in range(3))
-        gp[0, i] = col + (face_alpha,)
-    grad = grad.resize((2 * rx, 2 * ry))
-
-    head_mask = Image.new("L", (2 * rx, 2 * ry), 0)
-    ImageDraw.Draw(head_mask).ellipse((0, 0, 2 * rx - 1, 2 * ry - 1), fill=255)
-    layer.paste(grad, (cx - rx, cy - ry), head_mask)
-    d = ImageDraw.Draw(layer)
-
-    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry),
-              outline=SHELL_RIM + (face_alpha,), width=max(1, int(2 * s)))
-    d.arc((cx - rx + int(3 * s), cy - ry + int(3 * s), cx + rx - int(3 * s), cy + ry - int(3 * s)),
-          start=200, end=340, fill=(255, 255, 255, 150), width=max(1, int(2 * s)))
-
-    # Specular highlight, upper-left.
-    hl_w, hl_h = int(rx * 0.40), int(ry * 0.26)
-    hx, hy = cx - int(rx * 0.42), cy - int(ry * 0.50)
-    layer = Image.alpha_composite(layer, _soft_shape(
-        layer.size, (255, 255, 255), min(235, face_alpha),
-        lambda dd: dd.ellipse(
-            (hx - hl_w // 2, hy - hl_h // 2, hx + hl_w // 2, hy + hl_h // 2), fill=255),
-        blur_radius=int(6 * s)))
-    d = ImageDraw.Draw(layer)
-
-    # --- Eyes ---
-    eye_dx = int(rx * 0.42)
-    eye_y = cy - int(ry * 0.16) + int(eye_drift * s)
-    eye_rx = int(rx * 0.30)
-    eye_ry = int(ry * 0.22)
-
-    eyes = Image.new("RGBA", layer.size, (0, 0, 0, 0))
-    ed = ImageDraw.Draw(eyes)
+    # --- Side actuator modules -------------------------------------------
     for sign in (-1, 1):
-        _eye_shape(ed, cx + sign * eye_dx, eye_y, eye_rx, eye_ry,
-                   eye_kind, accent + (255,), s, side=sign)
+        ex = cx + sign * (hw + int(12 * s))
+        ew, eh = int(12 * s), int(25 * s)
+        d.rounded_rectangle((ex - ew, cy - eh, ex + ew, cy + eh),
+                            radius=int(7 * s), fill=METAL_MID + (alpha,),
+                            outline=METAL_EDGE + (alpha,), width=lw)
+        for rr in (int(8 * s), int(4 * s)):
+            d.ellipse((ex - rr, cy - rr, ex + rr, cy + rr),
+                      outline=METAL_EDGE + (alpha,), width=max(1, int(1.5 * s)))
 
-    if GLOW and ImageFilter is not None and eye_kind != "blink":
-        bloom_mask = eyes.getchannel("A").filter(ImageFilter.GaussianBlur(radius=int(8 * s)))
-        bloom_mask = bloom_mask.point(lambda v: min(255, int(v * 0.85)))
-        bloom = Image.new("RGBA", eyes.size, accent + (0,))
-        bloom.putalpha(bloom_mask)
-        layer = Image.alpha_composite(layer, bloom)
-    layer = Image.alpha_composite(layer, eyes)
-    d = ImageDraw.Draw(layer)
+    # --- Main shell ------------------------------------------------------
+    d.rounded_rectangle((cx - hw, cy - hh, cx + hw, cy + hh),
+                        radius=r, fill=METAL_HI + (alpha,))
 
-    # --- Mouth ---
-    _mouth(d, cx, cy + int(ry * 0.46), expr["mouth"], accent + (255,), mouth_phase, s)
+    shell_mask = Image.new("L", (2 * hw, 2 * hh), 0)
+    ImageDraw.Draw(shell_mask).rounded_rectangle((0, 0, 2 * hw - 1, 2 * hh - 1),
+                                                 radius=r, fill=255)
+    grad = _vgrad((2 * hw, 2 * hh), METAL_HI, METAL_LO, ease=1.7).convert("RGBA")
+    L.paste(grad, (cx - hw, cy - hh), shell_mask)
+    d = ImageDraw.Draw(L)
+
+    d.rounded_rectangle((cx - hw, cy - hh, cx + hw, cy + hh),
+                        radius=r, outline=METAL_EDGE + (alpha,), width=lw)
+
+    # --- Panel seams -----------------------------------------------------
+    brow_y = cy - int(hh * 0.58)
+    d.line((cx - hw + int(7 * s), brow_y, cx + hw - int(7 * s), brow_y),
+           fill=SEAM + (alpha,), width=max(1, int(1.5 * s)))
+    for sign in (-1, 1):
+        sx = cx + sign * int(hw * 0.74)
+        d.line((sx, cy + int(hh * 0.20), sx, cy + hh - int(9 * s)),
+               fill=SEAM + (alpha,), width=max(1, int(1.5 * s)))
+
+    # --- Bolts -----------------------------------------------------------
+    br = int(3.2 * s)
+    for bx, by in ((cx - hw + int(11 * s), cy - hh + int(11 * s)),
+                   (cx + hw - int(11 * s), cy - hh + int(11 * s)),
+                   (cx - hw + int(11 * s), cy + hh - int(11 * s)),
+                   (cx + hw - int(11 * s), cy + hh - int(11 * s))):
+        d.ellipse((bx - br, by - br, bx + br, by + br),
+                  fill=BOLT + (alpha,), outline=BOLT_DARK + (alpha,), width=max(1, int(1 * s)))
+        d.line((bx - br // 2, by, bx + br // 2, by),
+               fill=BOLT_DARK + (alpha,), width=max(1, int(1 * s)))
+
+    # --- Visor recess ----------------------------------------------------
+    vx0, vx1 = cx - int(hw * 0.82), cx + int(hw * 0.82)
+    vy0, vy1 = cy - int(hh * 0.44), cy + int(hh * 0.16)
+    d.rounded_rectangle((vx0, vy0, vx1, vy1), radius=int(14 * s),
+                        fill=VISOR_BG + (alpha,), outline=VISOR_RIM + (alpha,), width=lw)
+    d.arc((vx0 + int(2 * s), vy0 + int(2 * s), vx1 - int(2 * s), vy1 - int(2 * s)),
+          start=185, end=355, fill=(0, 0, 0, min(alpha, 180)), width=max(1, int(3 * s)))
+
+    # --- Vocoder housing -------------------------------------------------
+    gx0, gx1 = cx - int(hw * 0.55), cx + int(hw * 0.55)
+    gy0, gy1 = cy + int(hh * 0.34), cy + int(hh * 0.86)
+    d.rounded_rectangle((gx0, gy0, gx1, gy1), radius=int(5 * s),
+                        fill=GRILLE_BG + (alpha,), outline=METAL_EDGE + (alpha,),
+                        width=max(1, int(1.5 * s)))
+
+    # --- Antenna ---------------------------------------------------------
+    d.line((cx, cy - hh + int(2 * s), cx, cy - hh - int(22 * s)),
+           fill=METAL_LO + (alpha,), width=max(1, int(3 * s)))
+    d.rounded_rectangle((cx - int(5 * s), cy - hh - int(5 * s), cx + int(5 * s), cy - hh + int(3 * s)),
+                        radius=int(2 * s), fill=METAL_MID + (alpha,))
+
+    # --- Glossy sheen across the upper shell -----------------------------
+    L = Image.alpha_composite(L, _soft(
+        L.size, (255, 255, 255), min(110, alpha),
+        lambda dd: dd.ellipse((cx - int(hw * 0.90), cy - hh - int(12 * s),
+                               cx + int(hw * 0.05), cy - int(hh * 0.50)), fill=255),
+        blur=int(10 * s)))
 
     if s > 1:
-        layer = layer.resize((W, H), Image.LANCZOS)
-    return layer
+        L = L.resize((W, H), Image.LANCZOS)
+
+    geom = {
+        "cx": W / 2.0,
+        "cy": cy / s,
+        "hw": hw / s,
+        "hh": hh / s,
+        "visor": (vx0 / s, vy0 / s, vx1 / s, vy1 / s),
+        "grille": (gx0 / s, gy0 / s, gx1 / s, gy1 / s),
+        "antenna_y": (cy - hh - int(22 * s)) / s,
+    }
+    return L, geom
+
+
+def chassis(size, alpha):
+    key = (size, alpha, SUPERSAMPLE)
+    hit = _CHASSIS_CACHE.get(key)
+    if hit is None:
+        hit = _build_chassis(size, alpha)
+        _CHASSIS_CACHE[key] = hit
+    return hit
+
+
+# --- Optics -------------------------------------------------------------
+
+_OPTIC_CACHE: dict = {}
+
+
+def _build_optic(kind, accent, w, h):
+    """One glowing optic with its bloom, on a transparent tile.
+
+    Cached and pasted at a moving offset — that is what lets the gaze drift
+    smoothly without re-rendering or re-blurring anything per frame.
+    """
+    s = max(1, SUPERSAMPLE)
+    pad = int(12 * s)
+    tw, th = int(w * s) + pad * 2, int(h * s) + pad * 2
+    tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tile)
+
+    cx, cy = tw // 2, th // 2
+    rx, ry = int(w * s) // 2, int(h * s) // 2
+    a = tuple(accent) + (255,)
+
+    if kind == "round":
+        d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=a)
+        d.ellipse((cx - rx // 2, cy - ry // 2, cx + rx // 2, cy + ry // 2),
+                  outline=(255, 255, 255, 140), width=max(1, int(2 * s)))
+    elif kind == "happy":
+        d.arc((cx - rx, cy - ry, cx + rx, cy + ry * 2),
+              start=190, end=350, fill=a, width=max(2, int(7 * s)))
+    elif kind == "slit":
+        d.rounded_rectangle((cx - rx, cy - int(ry * 0.30), cx + rx, cy + int(ry * 0.30)),
+                            radius=max(1, int(ry * 0.30)), fill=a)
+    elif kind == "cross":
+        tw_ = max(2, int(5 * s))
+        d.line((cx - rx, cy - ry // 2, cx + rx, cy + ry // 2), fill=a, width=tw_)
+        d.line((cx - rx, cy + ry // 2, cx + rx, cy - ry // 2), fill=a, width=tw_)
+    else:  # blink — closed shutter
+        d.rounded_rectangle((cx - rx, cy - int(2.5 * s), cx + rx, cy + int(2.5 * s)),
+                            radius=max(1, int(2 * s)), fill=a)
+
+    if GLOW and ImageFilter is not None and kind != "blink":
+        m = tile.getchannel("A").filter(ImageFilter.GaussianBlur(radius=int(7 * s)))
+        m = m.point(lambda v: min(255, int(v * 0.9)))
+        bloom = Image.new("RGBA", tile.size, tuple(accent) + (0,))
+        bloom.putalpha(m)
+        tile = Image.alpha_composite(bloom, tile)
+
+    if s > 1:
+        tile = tile.resize((tw // s, th // s), Image.LANCZOS)
+    return tile
+
+
+def optic(kind, accent, w, h):
+    key = (kind, tuple(accent), w, h, SUPERSAMPLE, GLOW)
+    hit = _OPTIC_CACHE.get(key)
+    if hit is None:
+        hit = _build_optic(kind, accent, w, h)
+        _OPTIC_CACHE[key] = hit
+    return hit
+
+
+# --- Rotation ------------------------------------------------------------
+# Rotating the fully-composed head every frame costs ~7 ms (BICUBIC) at 240x280,
+# which is the entire frame budget on a Pi Zero 2 W. Instead we rotate the
+# *static* chassis once per quantised angle and cache it, rotate only small
+# sprite tiles per frame, and place moving parts by rotating their coordinates.
+
+_ROT_CHASSIS: dict = {}
+_ROT_TILE: dict = {}
+
+
+def _rot_pt(x, y, cx, cy, deg):
+    """Where a feature at (x, y) ends up after the head is tilted `deg` about
+    (cx, cy). Screen y grows downward, hence the sign convention here."""
+    a = math.radians(deg)
+    ca, sa = math.cos(a), math.sin(a)
+    dx, dy = x - cx, y - cy
+    return cx + dx * ca + dy * sa, cy - dx * sa + dy * ca
+
+
+def _quantise(deg):
+    return round(deg / TILT_STEP) * TILT_STEP
+
+
+def rotated_chassis(size, alpha, deg, pivot):
+    key = (size, alpha, deg, SUPERSAMPLE)
+    hit = _ROT_CHASSIS.get(key)
+    if hit is None:
+        body, _ = chassis(size, alpha)
+        if abs(deg) < 0.01:
+            hit = body
+        else:
+            hit = body.rotate(deg, resample=Image.BICUBIC, center=pivot)
+        if len(_ROT_CHASSIS) > 32:
+            _ROT_CHASSIS.clear()
+        _ROT_CHASSIS[key] = hit
+    return hit
+
+
+def rotated_tile(tile, deg, key):
+    """Rotate a small sprite, cached. Small tiles are cheap enough that BICUBIC
+    is affordable here even though it is not on the full frame."""
+    ck = (key, deg)
+    hit = _ROT_TILE.get(ck)
+    if hit is None:
+        hit = tile if abs(deg) < 0.01 else tile.rotate(
+            deg, resample=Image.BICUBIC, expand=True)
+        if len(_ROT_TILE) > 96:
+            _ROT_TILE.clear()
+        _ROT_TILE[ck] = hit
+    return hit
+
+
+# --- Motion -------------------------------------------------------------
+
+def _saccade(t, period, ax, ay):
+    """Gaze that holds a target for a beat then flicks to a new one, rather
+    than sliding around continuously — real eyes move in jumps."""
+    i = int(t / period)
+    f = (t / period) - i
+    e = min(1.0, f * 6.0)  # fast ease into the new target, then hold
+    x1, y1 = (_hash01(i * 2) - 0.5) * 2, (_hash01(i * 2 + 1) - 0.5) * 2
+    x0, y0 = (_hash01((i - 1) * 2) - 0.5) * 2, (_hash01((i - 1) * 2 + 1) - 0.5) * 2
+    return (x0 + (x1 - x0) * e) * ax, (y0 + (y1 - y0) * e) * ay
+
+
+def _motion(status, t):
+    """Continuous motion state for this instant.
+
+    Each status has its own movement character, so the device's state is
+    legible from body language alone, before you read the status pill.
+    """
+    if not MOTION:
+        return {"tilt": 0.0, "gx": 0.0, "gy": 0.0, "bob": 0.0, "energy": 0.0}
+
+    tilt = gx = gy = bob = 0.0
+    energy = 0.0
+
+    if status == "idle":
+        tilt = math.sin(t * 0.55) * 4.0
+        bob = math.sin(t * 1.1) * 2.0
+        gx, gy = _saccade(t, 2.7, 5.0, 2.5)
+
+    elif status == "listening":
+        tilt = math.sin(t * 2.2) * 1.6
+        bob = -2.0 + math.sin(t * 2.6) * 0.8
+        gx, gy = _saccade(t, 1.1, 3.0, 1.5)
+
+    elif status in ("thinking", "transcribing"):
+        tilt = -3.0 + math.sin(t * 0.9) * 3.5
+        gx = math.sin(t * 0.8) * 5.0
+        gy = -3.0 + math.sin(t * 1.7) * 1.5
+        bob = math.sin(t * 0.7) * 1.2
+
+    elif status == "speaking":
+        tilt = math.sin(t * 3.1) * 2.6
+        bob = math.sin(t * 6.2) * 1.6
+        gx, gy = _saccade(t, 1.8, 3.0, 1.5)
+        energy = 0.5 + 0.5 * math.sin(t * 11.0) * math.sin(t * 4.3)
+
+    elif status == "reminder":
+        bob = -abs(math.sin(t * 5.0)) * 5.0
+        tilt = math.sin(t * 5.0) * 5.0
+        energy = 0.7
+
+    elif status == "error":
+        tilt = math.sin(t * 18.0) * 4.0
+        gx = math.sin(t * 18.0) * 2.0
+        bob = 2.0
+
+    return {
+        "tilt": max(-TILT_MAX, min(TILT_MAX, tilt)),
+        "gx": gx, "gy": gy, "bob": bob,
+        "energy": max(0.0, min(1.0, energy)),
+    }
+
+
+# --- Public API ---------------------------------------------------------
+
+def _bar_tile(geom, status, accent, energy, t, alpha):
+    """Vocoder equalizer rendered into a small standalone tile.
+
+    Kept separate from the chassis so it can be rotated cheaply with the head:
+    the tile is ~80x40 rather than 240x280, so rotating it costs a fraction of
+    a millisecond instead of several.
+
+    A segmented LED meter rather than smooth bars — discrete lit/unlit cells
+    read as a machine readout, and unlit cells stay visible so the grille never
+    looks empty.
+    """
+    gx0, gy0, gx1, gy1 = geom["grille"]
+    tw, th = int(gx1 - gx0), int(gy1 - gy0)
+    tile = Image.new("RGBA", (max(1, tw), max(1, th)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tile)
+
+    NB, NSEG = 6, 4
+    pad = 4.0
+    cell_w = (tw - pad * 2) / NB
+    cell_h = (th - pad * 2) / NSEG
+    off_col = tuple(GRILLE_OFF) + (alpha,)
+    on_col = tuple(accent) + (alpha,)
+
+    for i in range(NB):
+        # Standing-wave shape: taller toward the middle, wobbled per column.
+        centre = 1.0 - abs(i - (NB - 1) / 2) / ((NB - 1) / 2)
+        wob = 0.5 + 0.5 * math.sin(t * 13.0 + i * 1.7)
+        lvl = energy * (0.40 + 0.60 * centre) * wob
+        if status in ("listening", "reminder"):
+            lvl = max(lvl, 0.30 + 0.25 * wob)
+        lit = int(round(lvl * NSEG))
+
+        bx0 = pad + i * cell_w
+        bx1 = bx0 + cell_w - 2.5
+        for seg in range(NSEG):
+            sy1 = th - pad - seg * cell_h
+            sy0 = sy1 - cell_h + 2.0
+            d.rectangle((bx0, sy0, bx1, sy1),
+                        fill=on_col if seg < lit else off_col)
+    return tile
+
+
+def _paste_centred(dst, tile, cxy):
+    dst.alpha_composite(tile, (int(cxy[0] - tile.width / 2),
+                               int(cxy[1] - tile.height / 2)))
 
 
 def draw_face(size, status: str, t: float, face_alpha: int = 255):
-    """Render the head as a standalone RGBA layer with a transparent background."""
+    """Render the robot as an RGBA layer with a transparent background."""
     if Image is None:
         raise RuntimeError("PIL not installed (install python3-pil)")
 
     W, H = size
     status = (status or "idle").lower()
-    expr = expression_for(status)
     accent = accent_for(status)
+    m = _motion(status, t)
 
-    # Blink on a slow cycle, only in restful states.
-    blink = (t % 5.4) > 5.18 and status in ("idle", "speaking")
-    eye_kind = "blink" if blink else expr["eye"]
+    _, geom = chassis(size, face_alpha)
+    cx, cy = geom["cx"], geom["cy"]
+    hw, hh = geom["hw"], geom["hh"]
 
-    # Mouth animation phase, quantised so it maps onto a cacheable sprite.
-    mouth_phase = int((t * 7.0) % 4) if expr["mouth"] == "talk" else 0
+    # Pivot at the neck joint so the head swivels like it is on a servo rather
+    # than spinning about its own centre.
+    pivot = (int(cx), int(cy + hh))
+    tilt = _quantise(m["tilt"])
 
-    # Thinking: eyes drift as though scanning. Quantised to 3 positions.
-    eye_drift = 0
-    if status in ("thinking", "transcribing"):
-        eye_drift = round(math.sin(t * 2.0) * 2)
+    head = rotated_chassis(size, face_alpha, tilt, pivot).copy()
 
-    key = (size, status, eye_kind, mouth_phase, eye_drift, face_alpha, SUPERSAMPLE, GLOW)
-    sprite = _SPRITE_CACHE.get(key)
-    if sprite is None:
-        if len(_SPRITE_CACHE) >= _SPRITE_CACHE_MAX:
-            _SPRITE_CACHE.clear()
-        sprite = _build_face_sprite(size, status, eye_kind, mouth_phase, eye_drift, face_alpha)
-        _SPRITE_CACHE[key] = sprite
+    # --- Optics ----------------------------------------------------------
+    blink = (t % 5.6) > 5.42 and status in ("idle", "speaking", "listening")
+    kind = "blink" if blink else optic_for(status)
 
-    # Breathing bob: a translation, so it does not need its own sprite.
-    bob = int(round(math.sin(t * 1.6) * 2.2))
+    ow, oh = int(hw * 0.44), int(hh * 0.38)
+    eye = rotated_tile(optic(kind, accent, ow, oh), tilt,
+                       ("optic", kind, tuple(accent), ow, oh))
+    eye_dx = hw * 0.40
+    eye_y = cy - hh * 0.14 + m["gy"]
+    for sign in (-1, 1):
+        p = _rot_pt(cx + sign * eye_dx + m["gx"], eye_y, pivot[0], pivot[1], tilt)
+        _paste_centred(head, eye, p)
 
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    layer.paste(sprite, (0, bob))
+    # --- Vocoder ---------------------------------------------------------
+    gx0, gy0, gx1, gy1 = geom["grille"]
+    bars = _bar_tile(geom, status, accent, m["energy"], t, face_alpha)
+    if abs(tilt) > 0.01:
+        bars = bars.rotate(tilt, resample=Image.BICUBIC, expand=True)
+    _paste_centred(head, bars,
+                   _rot_pt((gx0 + gx1) / 2, (gy0 + gy1) / 2, pivot[0], pivot[1], tilt))
 
-    # Antenna tip pulses — continuous, but it is one small ellipse.
-    d = ImageDraw.Draw(layer)
-    cx = W // 2
-    cy = H * 0.44 + bob
-    ry = W * 0.335
-    tip_y = int(cy - ry - 28 + 5)
-    pulse = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(t * 2.4))
+    # --- Antenna beacon --------------------------------------------------
+    pulse = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(t * 3.0))
     tip = tuple(int(c * pulse) for c in accent)
-    d.ellipse((cx - 5, tip_y - 5, cx + 5, tip_y + 5), fill=tip + (face_alpha,))
+    ax, ay = _rot_pt(cx, geom["antenna_y"], pivot[0], pivot[1], tilt)
+    ImageDraw.Draw(head).ellipse((ax - 5, ay - 5, ax + 5, ay + 5),
+                                 fill=tip + (face_alpha,))
 
-    return layer
+    # --- Bob -------------------------------------------------------------
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    out.paste(head, (0, int(round(m["bob"]))))
+    return out
 
 
 def render(size, status: str, t: float, face_alpha: int = 255):
-    """Convenience: background + face composited, returned as RGB."""
+    """Convenience: background + robot composited, returned as RGB."""
     W, H = size
     bg = build_background(W, H, accent_for(status)).convert("RGBA")
-    face = draw_face(size, status, t, face_alpha=face_alpha)
-    return Image.alpha_composite(bg, face).convert("RGB")
+    return Image.alpha_composite(bg, draw_face(size, status, t, face_alpha)).convert("RGB")
