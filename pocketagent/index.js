@@ -167,7 +167,10 @@ function parseDue(timeText) {
   return due.toISOString();
 }
 
-async function say(text) {
+async function say(text, { status = 'speaking' } = {}) {
+  // `status` drives the face colour while speaking. Reminder confirmations pass
+  // 'confirm' so the whole moment reads green, instead of the green flashing for
+  // a single frame before TTS switches the display to 'speaking'.
   // Never let TTS/audio failures crash the whole loop.
   const spoken = String(text || '').trim();
   try {
@@ -177,7 +180,7 @@ async function say(text) {
     // Show what we're about to say on the display.
     // IMPORTANT: don't truncate too aggressively — the Whisplay subtitle bubble can scroll.
     const displayText = spoken.length > 600 ? (spoken.slice(0, 600) + '…') : spoken;
-    void displayUpdate({ status: 'speaking', line1: 'PocketAgent', line2: displayText });
+    void displayUpdate({ status, line1: 'PocketAgent', line2: displayText });
 
     // Battery: optional Wi‑Fi burst mode for cloud calls (TTS)
     const wifiBurst = !!DEFAULTS.wifiBurst;
@@ -298,7 +301,7 @@ async function notifyAndMaybeAck({ id, text, kind }) {
     ? `Reminder: ${text}. Did you do it?`
     : `Reminder: ${text}. Did you do it yet?`;
 
-  void displayUpdate({ status: 'speaking', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
+  void displayUpdate({ status: 'reminder', line1: 'Reminder', line2: String(text || '').slice(0, 160) });
   await say(prompt);
 
   // Ack behavior:
@@ -732,10 +735,10 @@ async function oneTurn({ abortSignal = null } = {}) {
           console.log('[PocketAgent] /reminders/add response:', { status: r?.status, ok: r?.json?.ok, json: r?.json ?? null, raw: r?.raw ?? null });
 
           if (r?.json?.ok) {
-            void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
+            void displayUpdate({ status: 'confirm', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
             const tt = String(timeText || '').trim();
             const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
-            await say(`Perfect — I’ll remind you ${when}.`);
+            await say(`Perfect — I’ll remind you ${when}.`, { status: 'confirm' });
           } else {
             await say('I had trouble saving that reminder. Check the logs.');
           }
@@ -1197,7 +1200,7 @@ async function oneTurn({ abortSignal = null } = {}) {
           void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
           const tt = String(timeText || '').trim();
           const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
-          await say(`Perfect — I’ll remind you ${when}.`);
+          await say(`Perfect — I’ll remind you ${when}.`, { status: 'confirm' });
         } else {
           await say('I had trouble saving that reminder. Check the logs.');
         }
@@ -1488,10 +1491,10 @@ async function oneTurn({ abortSignal = null } = {}) {
     const r = await remindersPost('/reminders/add', { reminderText, timeText, followupSpec, recurrence });
     runtime.state.collected = null;
     if (r?.json?.ok) {
-      void displayUpdate({ status: 'idle', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
+      void displayUpdate({ status: 'confirm', line1: 'Reminder saved', line2: `${timeText}: ${String(reminderText || '').slice(0, 120)}` });
       const tt = String(timeText || '').trim();
     const when = /^in\b/i.test(tt) ? tt : `at ${tt}`;
-    await say(`Perfect — I’ll remind you ${when}.`);
+    await say(`Perfect — I’ll remind you ${when}.`, { status: 'confirm' });
     } else {
       await say('I had trouble saving that reminder. Check the logs.');
     }

@@ -64,14 +64,21 @@ GRILLE_BG = (38, 43, 54)
 GRILLE_OFF = (64, 72, 88)
 
 
+# Accent colour signals what the device is doing. Blue is the resting
+# identity; other colours are reserved for moments that mean something, so a
+# colour change is informative rather than decorative.
+ACCENT_DEFAULT = (90, 175, 255)          # primary — calm blue
+
 ACCENTS = {
-    "idle":         (120, 230, 130),
-    "listening":    (90, 210, 255),
-    "transcribing": (255, 200, 90),
-    "thinking":     (255, 190, 80),
-    "speaking":     (130, 240, 140),
-    "reminder":     (255, 165, 70),
-    "error":        (255, 105, 105),
+    "idle":         ACCENT_DEFAULT,
+    "listening":    (80, 215, 255),      # brighter cyan-blue: actively hearing
+    "transcribing": (150, 190, 255),     # pale blue: still processing input
+    "thinking":     (185, 165, 255),     # violet: working
+    "speaking":     ACCENT_DEFAULT,      # back to primary while talking
+    "wifi":         (150, 190, 255),
+    "confirm":      (120, 235, 140),     # green: something was committed
+    "reminder":     (120, 235, 140),     # green: reminder created / firing
+    "error":        (255, 105, 105),     # red: fault
 }
 
 # Optic shape per status.
@@ -84,12 +91,14 @@ OPTICS = {
     "thinking":     "slit",
     "speaking":     "happy",
     "reminder":     "round",
+    "confirm":      "happy",
+    "wifi":         "slit",
     "error":        "cross",
 }
 
 
 def accent_for(status: str):
-    return ACCENTS.get((status or "idle").lower(), ACCENTS["idle"])
+    return ACCENTS.get((status or "idle").lower(), ACCENT_DEFAULT)
 
 
 def optic_for(status: str):
@@ -194,7 +203,9 @@ def _build_chassis(size, alpha):
     d = ImageDraw.Draw(L)
 
     cx = (W // 2) * s
-    cy = int(H * 0.42 * s)
+    # Centred on the panel. The status pill (top) and subtitle bubble (bottom)
+    # are drawn over this, so 0.50 keeps equal breathing room between them.
+    cy = int(H * 0.50 * s)
     rx = int(W * 0.335 * s)      # slightly wider than tall
     ry = int(W * 0.320 * s)
     lw = max(1, int(2 * s))
@@ -324,8 +335,6 @@ def _build_optic(kind, accent, w, h):
 
     if kind == "round":
         d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=a)
-        d.ellipse((cx - rx // 2, cy - ry // 2, cx + rx // 2, cy + ry // 2),
-                  outline=(255, 255, 255, 140), width=max(1, int(2 * s)))
     elif kind == "happy":
         d.arc((cx - rx, cy - ry, cx + rx, cy + ry * 2),
               start=190, end=350, fill=a, width=max(2, int(7 * s)))

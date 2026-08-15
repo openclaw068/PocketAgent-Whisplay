@@ -519,7 +519,10 @@ except Exception:  # pragma: no cover - depends on host packages
 
 
 def is_active_status(status: str) -> bool:
-    return (status or "idle").lower() in {"listening", "transcribing", "thinking", "speaking", "reminder", "error"}
+    return (status or "idle").lower() in {
+        "listening", "transcribing", "thinking", "speaking",
+        "reminder", "confirm", "wifi", "error",
+    }
 
 
 def subtitle_from_state(s: dict) -> str:
@@ -601,15 +604,14 @@ class WhisplayBackend(DisplayBackend):
                 self._asleep = False
                 self._set_backlight(WAKE_BACKLIGHT)
 
-        rgb = {
-            "idle": (0, 0, 0),
-            "listening": (0, 90, 40),
-            "transcribing": (120, 90, 0),
-            "thinking": (0, 60, 140),
-            "speaking": (120, 0, 140),
-            "reminder": (140, 60, 0),
-            "error": (140, 0, 0),
-        }.get(st, (20, 20, 20))
+        # Derive the board LED from the same accent table the face uses, so the
+        # two can never disagree and new statuses need no second lookup table.
+        # Dimmed heavily: the onboard RGB is far brighter than the LCD.
+        if st == "idle":
+            rgb = (0, 0, 0)
+        else:
+            a = face_mod.accent_for(st)
+            rgb = tuple(int(c * 0.45) for c in a)
 
         try:
             # RGB indicator gives quick feedback even when the screen is busy
