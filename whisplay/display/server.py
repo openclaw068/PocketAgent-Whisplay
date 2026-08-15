@@ -68,6 +68,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+try:
+    from . import face as face_mod  # when imported as a package
+except ImportError:  # pragma: no cover - run directly as a script
+    import face as face_mod
+
 # Pillow is installed by install_pi.sh (python3-pil)
 # PIL is optional at import time so the service can still start in stdout mode.
 try:
@@ -277,22 +282,22 @@ def render_frame(s: dict, t: float):
 
     status = (s.get("status") or "idle").lower()
 
-    # Build as RGBA so we can alpha-blend UI/face over the background.
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 255))
-
-    # Background
-    bg = _fit_cover(_load_bg_image(), W, H)
-    if bg is not None:
-        img.paste(bg.convert("RGBA"), (0, 0))
-        # Add a subtle dark overlay so UI/face remain readable.
-        overlay_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_BG_DARKEN", "70"))  # 0-255
-        if overlay_alpha > 0:
-            ov = Image.new("RGBA", (W, H), (0, 0, 0, max(0, min(255, overlay_alpha))))
-            img = Image.alpha_composite(img, ov)
+    # Background: procedurally generated dark gradient + starfield + a soft
+    # glow tinted by the current status. Replaces the previous hyperion.jpg
+    # photo, which had to be darkened by 70/255 to keep the face readable and
+    # is now redundant. Set POCKETAGENT_DISPLAY_BG_IMAGE to re-enable a photo.
+    accent = face_mod.accent_for(status)
+    if BG_IMAGE_PATH and os.path.exists(BG_IMAGE_PATH) and os.environ.get("POCKETAGENT_DISPLAY_BG_IMAGE"):
+        img = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+        bg = _fit_cover(_load_bg_image(), W, H)
+        if bg is not None:
+            img.paste(bg.convert("RGBA"), (0, 0))
+            overlay_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_BG_DARKEN", "70"))
+            if overlay_alpha > 0:
+                ov = Image.new("RGBA", (W, H), (0, 0, 0, max(0, min(255, overlay_alpha))))
+                img = Image.alpha_composite(img, ov)
     else:
-        # fallback: solid black
-        d0 = ImageDraw.Draw(img)
-        d0.rectangle((0, 0, W, H), fill=(0, 0, 0, 255))
+        img = face_mod.build_background(W, H, accent).convert("RGBA")
 
     # UI overlay (face + bubbles) with configurable transparency
     face_alpha = int(os.environ.get("POCKETAGENT_DISPLAY_FACE_ALPHA", "235"))  # 0-255
@@ -386,73 +391,12 @@ def render_frame(s: dict, t: float):
     if _FONT_STATUS is not None:
         tw = d.textlength(label, font=_FONT_STATUS)
         d.text(((W - tw) // 2, 18), label, font=_FONT_STATUS, fill=(60, 80, 120))
-    bob_y = 0
-
-    # Eyes + face (minimal, black/white) — keep UI elements elsewhere
-
-    blink_phase = (t % 6.0)
-
-    blinking = 5.6 < blink_phase < 5.9 and status == "idle"
-
-
-    # head + ear pads (reference-style)
-    cx, cy = (W // 2, 140 + bob_y)
-    # head: slightly wider than tall
-    rx, ry = 80, 68
-    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=(255, 255, 255, face_alpha))
-
-    # ear pads: flat inner edge, rounded outer edge, with a gap from the head
-    pad_w, pad_h = 16, 50
-    gap = 10
-    top_y = cy - pad_h // 2
-    bot_y = cy + pad_h // 2
-
-    # left ear (flat inner wall at inner_x, rounded outer dome)
-    inner_x = cx - rx - gap
-    outer_x = inner_x - pad_w
-    d.rectangle((outer_x + pad_w//2, top_y, inner_x, bot_y), fill=(255, 255, 255, face_alpha))
-    d.ellipse((outer_x, top_y, outer_x + pad_w, bot_y), fill=(255, 255, 255, face_alpha))
-
-    # right ear
-    inner_x = cx + rx + gap
-    outer_x = inner_x + pad_w
-    d.rectangle((inner_x, top_y, outer_x - pad_w//2, bot_y), fill=(255, 255, 255, face_alpha))
-    d.ellipse((outer_x - pad_w, top_y, outer_x, bot_y), fill=(255, 255, 255, face_alpha))
-
-    # eyes: spherical circles + single highlight dot
-    eye_r = 26
-    eye_dx = 37
-    eye_y  = cy - 22
-
-    for ex in (cx - eye_dx, cx + eye_dx):
-        if blinking:
-            d.rounded_rectangle((ex - eye_r, eye_y - 4, ex + eye_r, eye_y + 4), radius=8, fill=(0, 0, 0))
-        else:
-            d.ellipse((ex - eye_r, eye_y - eye_r, ex + eye_r, eye_y + eye_r), fill=(0, 0, 0))
-            hl_r = 8
-            hx, hy = ex - 12, eye_y - 12
-            d.ellipse((hx - hl_r, hy - hl_r, hx + hl_r, hy + hl_r), fill=(255, 255, 255))
-
-    # mouth: animate while speaking (simple cycle)
-    mx0, my0, mx1, my1 = (cx - 26, cy + 27, cx + 26, cy + 51)
-
-    if status == "speaking":
-        phase = int((t * 10) % 4)
-        if phase == 0:
-            # small smile
-            d.arc((mx0, my0, mx1, my1), start=20, end=160, fill=(0, 0, 0), width=5)
-        elif phase == 1:
-            # flat line
-            d.rounded_rectangle((cx - 18, cy + 40, cx + 18, cy + 44), radius=3, fill=(0, 0, 0))
-        elif phase == 2:
-            # open mouth
-            d.ellipse((cx - 10, cy + 34, cx + 10, cy + 50), outline=(0, 0, 0), width=5)
-        else:
-            # wider open mouth
-            d.ellipse((cx - 14, cy + 34, cx + 14, cy + 50), outline=(0, 0, 0), width=5)
-    else:
-        # idle/default: small smile
-        d.arc((mx0, my0, mx1, my1), start=20, end=160, fill=(0, 0, 0), width=5)
+    # --- Robot face -----------------------------------------------------
+    # Drawn by whisplay/display/face.py as a self-contained RGBA layer.
+    # Composited UNDER the chrome (status pill, wifi, battery, subtitle) so
+    # those stay legible over it.
+    face_layer = face_mod.draw_face((W, H), status, t, face_alpha=face_alpha)
+    img = Image.alpha_composite(img, face_layer)
 
     # subtitle bubble
 
