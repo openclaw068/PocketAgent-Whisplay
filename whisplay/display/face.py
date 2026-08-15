@@ -181,12 +181,12 @@ _CHASSIS_CACHE: dict = {}
 
 
 def _build_chassis(size, alpha):
-    """The static machined head: shell, seams, bolts, ear modules, visor recess,
-    vocoder housing and antenna.
+    """The static shell: glossy dome head, wraparound visor recess, ear pods,
+    collar. Smooth and round — no seams, bolts or hard panel edges.
 
-    Fixed geometry, so it is built once and reused. The visor and grille
-    interiors are left empty — optics and vocoder bars are composited in per
-    frame so they can move and react independently of the head.
+    Fixed geometry, so it is built once and cached. The visor interior is left
+    empty; optics and the speech waveform are composited in per frame so they
+    can move independently of the head.
     """
     W, H = size
     s = max(1, SUPERSAMPLE)
@@ -194,94 +194,90 @@ def _build_chassis(size, alpha):
     d = ImageDraw.Draw(L)
 
     cx = (W // 2) * s
-    cy = int(H * 0.43 * s)
-    hw = int(W * 0.315 * s)
-    hh = int(W * 0.30 * s)
-    r = int(20 * s)
+    cy = int(H * 0.42 * s)
+    rx = int(W * 0.335 * s)      # slightly wider than tall
+    ry = int(W * 0.320 * s)
     lw = max(1, int(2 * s))
 
-    # --- Neck / pivot ----------------------------------------------------
-    nw = int(15 * s)
-    d.rounded_rectangle((cx - nw, cy + hh - int(6 * s), cx + nw, cy + hh + int(18 * s)),
-                        radius=int(5 * s), fill=METAL_LO + (alpha,),
-                        outline=METAL_EDGE + (alpha,), width=lw)
-    for i in range(3):
-        yy = cy + hh + int((2 + i * 5) * s)
-        d.line((cx - nw + int(4 * s), yy, cx + nw - int(4 * s), yy),
-               fill=METAL_EDGE + (alpha,), width=max(1, int(1.5 * s)))
-
-    # --- Side actuator modules -------------------------------------------
-    for sign in (-1, 1):
-        ex = cx + sign * (hw + int(12 * s))
-        ew, eh = int(12 * s), int(25 * s)
-        d.rounded_rectangle((ex - ew, cy - eh, ex + ew, cy + eh),
-                            radius=int(7 * s), fill=METAL_MID + (alpha,),
-                            outline=METAL_EDGE + (alpha,), width=lw)
-        for rr in (int(8 * s), int(4 * s)):
-            d.ellipse((ex - rr, cy - rr, ex + rr, cy + rr),
-                      outline=METAL_EDGE + (alpha,), width=max(1, int(1.5 * s)))
-
-    # --- Main shell ------------------------------------------------------
-    d.rounded_rectangle((cx - hw, cy - hh, cx + hw, cy + hh),
-                        radius=r, fill=METAL_HI + (alpha,))
-
-    shell_mask = Image.new("L", (2 * hw, 2 * hh), 0)
-    ImageDraw.Draw(shell_mask).rounded_rectangle((0, 0, 2 * hw - 1, 2 * hh - 1),
-                                                 radius=r, fill=255)
-    grad = _vgrad((2 * hw, 2 * hh), METAL_HI, METAL_LO, ease=1.7).convert("RGBA")
-    L.paste(grad, (cx - hw, cy - hh), shell_mask)
+    # --- Contact shadow --------------------------------------------------
+    # A soft shadow under the dome grounds it far better than a neck stub,
+    # which just reads as a nub hanging off the bottom.
+    L = Image.alpha_composite(L, _soft(
+        L.size, (0, 0, 0), min(120, alpha),
+        lambda dd: dd.ellipse((cx - int(rx * 0.72), cy + ry - int(2 * s),
+                               cx + int(rx * 0.72), cy + ry + int(16 * s)), fill=255),
+        blur=int(9 * s)))
     d = ImageDraw.Draw(L)
 
-    d.rounded_rectangle((cx - hw, cy - hh, cx + hw, cy + hh),
-                        radius=r, outline=METAL_EDGE + (alpha,), width=lw)
-
-    # --- Panel seams -----------------------------------------------------
-    brow_y = cy - int(hh * 0.58)
-    d.line((cx - hw + int(7 * s), brow_y, cx + hw - int(7 * s), brow_y),
-           fill=SEAM + (alpha,), width=max(1, int(1.5 * s)))
+    # --- Ear pods --------------------------------------------------------
+    # Headphone-style discs that overlap the dome edge, matching the soft
+    # rounded language of the shell.
     for sign in (-1, 1):
-        sx = cx + sign * int(hw * 0.74)
-        d.line((sx, cy + int(hh * 0.20), sx, cy + hh - int(9 * s)),
-               fill=SEAM + (alpha,), width=max(1, int(1.5 * s)))
+        ex = cx + sign * int(rx * 0.97)
+        er = int(ry * 0.30)
+        d.ellipse((ex - er, cy - er, ex + er, cy + er), fill=METAL_HI + (alpha,))
+        d.ellipse((ex - er, cy - er, ex + er, cy + er),
+                  outline=(150, 160, 176, alpha), width=max(1, int(1.5 * s)))
+        rr = int(er * 0.58)
+        d.ellipse((ex - rr, cy - rr, ex + rr, cy + rr), fill=(40, 46, 58, alpha))
+        rr2 = int(er * 0.26)
+        d.ellipse((ex - rr2, cy - rr2, ex + rr2, cy + rr2), fill=(74, 84, 100, alpha))
 
-    # --- Bolts -----------------------------------------------------------
-    br = int(3.2 * s)
-    for bx, by in ((cx - hw + int(11 * s), cy - hh + int(11 * s)),
-                   (cx + hw - int(11 * s), cy - hh + int(11 * s)),
-                   (cx - hw + int(11 * s), cy + hh - int(11 * s)),
-                   (cx + hw - int(11 * s), cy + hh - int(11 * s))):
-        d.ellipse((bx - br, by - br, bx + br, by + br),
-                  fill=BOLT + (alpha,), outline=BOLT_DARK + (alpha,), width=max(1, int(1 * s)))
-        d.line((bx - br // 2, by, bx + br // 2, by),
-               fill=BOLT_DARK + (alpha,), width=max(1, int(1 * s)))
+    # --- Dome ------------------------------------------------------------
+    d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=METAL_HI + (alpha,))
+
+    dome_mask = Image.new("L", (2 * rx, 2 * ry), 0)
+    ImageDraw.Draw(dome_mask).ellipse((0, 0, 2 * rx - 1, 2 * ry - 1), fill=255)
+    grad = _vgrad((2 * rx, 2 * ry), METAL_HI, METAL_LO, ease=2.1).convert("RGBA")
+    L.paste(grad, (cx - rx, cy - ry), dome_mask)
+    d = ImageDraw.Draw(L)
+
+    # Soft occlusion around the lower rim so the dome reads as a sphere.
+    L = Image.alpha_composite(L, _soft(
+        L.size, (60, 68, 84), min(150, alpha),
+        lambda dd: dd.arc((cx - rx + int(2 * s), cy - ry + int(2 * s),
+                           cx + rx - int(2 * s), cy + ry - int(2 * s)),
+                          start=15, end=165, fill=255, width=int(9 * s)),
+        blur=int(7 * s)))
+    d = ImageDraw.Draw(L)
 
     # --- Visor recess ----------------------------------------------------
-    vx0, vx1 = cx - int(hw * 0.82), cx + int(hw * 0.82)
-    vy0, vy1 = cy - int(hh * 0.44), cy + int(hh * 0.16)
-    d.rounded_rectangle((vx0, vy0, vx1, vy1), radius=int(14 * s),
-                        fill=VISOR_BG + (alpha,), outline=VISOR_RIM + (alpha,), width=lw)
-    d.arc((vx0 + int(2 * s), vy0 + int(2 * s), vx1 - int(2 * s), vy1 - int(2 * s)),
-          start=185, end=355, fill=(0, 0, 0, min(alpha, 180)), width=max(1, int(3 * s)))
+    # Wide wraparound lozenge: the single most important cue that this is a
+    # smooth robot rather than a boxy one.
+    vx0, vx1 = cx - int(rx * 0.84), cx + int(rx * 0.84)
+    vy0, vy1 = cy - int(ry * 0.34), cy + int(ry * 0.36)
+    vr = int((vy1 - vy0) * 0.48)
+    d.rounded_rectangle((vx0, vy0, vx1, vy1), radius=vr, fill=VISOR_BG + (alpha,))
 
-    # --- Vocoder housing -------------------------------------------------
-    gx0, gx1 = cx - int(hw * 0.55), cx + int(hw * 0.55)
-    gy0, gy1 = cy + int(hh * 0.34), cy + int(hh * 0.86)
-    d.rounded_rectangle((gx0, gy0, gx1, gy1), radius=int(5 * s),
-                        fill=GRILLE_BG + (alpha,), outline=METAL_EDGE + (alpha,),
-                        width=max(1, int(1.5 * s)))
+    # Glass sheen: a soft diagonal band across the upper half of the visor,
+    # clipped to the visor so it reads as reflection on curved glass.
+    vmask = Image.new("L", L.size, 0)
+    ImageDraw.Draw(vmask).rounded_rectangle((vx0, vy0, vx1, vy1), radius=vr, fill=255)
+    sheen = _soft(L.size, (150, 175, 205), min(70, alpha),
+                  lambda dd: dd.ellipse((vx0 - int(10 * s), vy0 - int(26 * s),
+                                         cx + int(rx * 0.30), vy0 + int(16 * s)), fill=255),
+                  blur=int(8 * s))
+    sheen.putalpha(ImageChops.multiply(sheen.getchannel("A"), vmask))
+    L = Image.alpha_composite(L, sheen)
+    d = ImageDraw.Draw(L)
 
-    # --- Antenna ---------------------------------------------------------
-    d.line((cx, cy - hh + int(2 * s), cx, cy - hh - int(22 * s)),
-           fill=METAL_LO + (alpha,), width=max(1, int(3 * s)))
-    d.rounded_rectangle((cx - int(5 * s), cy - hh - int(5 * s), cx + int(5 * s), cy - hh + int(3 * s)),
-                        radius=int(2 * s), fill=METAL_MID + (alpha,))
+    # Thin bright rim on the visor edge — catches light like a bezel.
+    d.rounded_rectangle((vx0, vy0, vx1, vy1), radius=vr,
+                        outline=(120, 132, 152, min(alpha, 170)), width=lw)
 
-    # --- Glossy sheen across the upper shell -----------------------------
+    # --- Specular highlight on the dome ----------------------------------
     L = Image.alpha_composite(L, _soft(
-        L.size, (255, 255, 255), min(110, alpha),
-        lambda dd: dd.ellipse((cx - int(hw * 0.90), cy - hh - int(12 * s),
-                               cx + int(hw * 0.05), cy - int(hh * 0.50)), fill=255),
+        L.size, (255, 255, 255), min(200, alpha),
+        lambda dd: dd.ellipse((cx - int(rx * 0.66), cy - int(ry * 0.92),
+                               cx - int(rx * 0.06), cy - int(ry * 0.46)), fill=255),
         blur=int(10 * s)))
+
+    # Small secondary glint, upper right.
+    L = Image.alpha_composite(L, _soft(
+        L.size, (255, 255, 255), min(120, alpha),
+        lambda dd: dd.ellipse((cx + int(rx * 0.40), cy - int(ry * 0.76),
+                               cx + int(rx * 0.66), cy - int(ry * 0.58)), fill=255),
+        blur=int(5 * s)))
 
     if s > 1:
         L = L.resize((W, H), Image.LANCZOS)
@@ -289,11 +285,9 @@ def _build_chassis(size, alpha):
     geom = {
         "cx": W / 2.0,
         "cy": cy / s,
-        "hw": hw / s,
-        "hh": hh / s,
+        "hw": rx / s,
+        "hh": ry / s,
         "visor": (vx0 / s, vy0 / s, vx1 / s, vy1 / s),
-        "grille": (gx0 / s, gy0 / s, gx1 / s, gy1 / s),
-        "antenna_y": (cy - hh - int(22 * s)) / s,
     }
     return L, geom
 
@@ -485,45 +479,38 @@ def _motion(status, t):
 
 # --- Public API ---------------------------------------------------------
 
-def _bar_tile(geom, status, accent, energy, t, alpha):
-    """Vocoder equalizer rendered into a small standalone tile.
+def _wave_tile(geom, status, accent, energy, t, alpha):
+    """Speech waveform, rendered inside the visor beneath the optics.
 
-    Kept separate from the chassis so it can be rotated cheaply with the head:
-    the tile is ~80x40 rather than 240x280, so rotating it costs a fraction of
-    a millisecond instead of several.
+    These rounded designs have no mouth, so speech is shown as a small glowing
+    waveform on the visor instead of an external grille — it keeps the shell
+    smooth and unbroken.
 
-    A segmented LED meter rather than smooth bars — discrete lit/unlit cells
-    read as a machine readout, and unlit cells stay visible so the grille never
-    looks empty.
+    Kept as a standalone tile so it can be rotated with the head cheaply: the
+    tile is tiny compared to the full frame.
     """
-    gx0, gy0, gx1, gy1 = geom["grille"]
-    tw, th = int(gx1 - gx0), int(gy1 - gy0)
-    tile = Image.new("RGBA", (max(1, tw), max(1, th)), (0, 0, 0, 0))
+    vx0, vy0, vx1, vy1 = geom["visor"]
+    tw = int((vx1 - vx0) * 0.46)
+    th = max(6, int((vy1 - vy0) * 0.24))
+    tile = Image.new("RGBA", (max(1, tw), th), (0, 0, 0, 0))
+    if energy <= 0.02 and status not in ("listening", "reminder"):
+        return tile
+
     d = ImageDraw.Draw(tile)
-
-    NB, NSEG = 6, 4
-    pad = 4.0
-    cell_w = (tw - pad * 2) / NB
-    cell_h = (th - pad * 2) / NSEG
-    off_col = tuple(GRILLE_OFF) + (alpha,)
-    on_col = tuple(accent) + (alpha,)
-
-    for i in range(NB):
-        # Standing-wave shape: taller toward the middle, wobbled per column.
-        centre = 1.0 - abs(i - (NB - 1) / 2) / ((NB - 1) / 2)
-        wob = 0.5 + 0.5 * math.sin(t * 13.0 + i * 1.7)
-        lvl = energy * (0.40 + 0.60 * centre) * wob
+    N = 9
+    gap = tw / N
+    col = tuple(accent) + (alpha,)
+    for i in range(N):
+        centre = 1.0 - abs(i - (N - 1) / 2) / ((N - 1) / 2)
+        wob = 0.5 + 0.5 * math.sin(t * 15.0 + i * 1.3)
+        lvl = energy * (0.30 + 0.70 * centre) * wob
         if status in ("listening", "reminder"):
-            lvl = max(lvl, 0.30 + 0.25 * wob)
-        lit = int(round(lvl * NSEG))
-
-        bx0 = pad + i * cell_w
-        bx1 = bx0 + cell_w - 2.5
-        for seg in range(NSEG):
-            sy1 = th - pad - seg * cell_h
-            sy0 = sy1 - cell_h + 2.0
-            d.rectangle((bx0, sy0, bx1, sy1),
-                        fill=on_col if seg < lit else off_col)
+            lvl = max(lvl, 0.22 + 0.20 * wob)
+        h = max(1.5, (th - 2) * lvl)
+        x = i * gap + gap * 0.5
+        d.rounded_rectangle((x - gap * 0.28, th / 2 - h / 2,
+                             x + gap * 0.28, th / 2 + h / 2),
+                            radius=gap * 0.28, fill=col)
     return tile
 
 
@@ -557,29 +544,22 @@ def draw_face(size, status: str, t: float, face_alpha: int = 255):
     blink = (t % 5.6) > 5.42 and status in ("idle", "speaking", "listening")
     kind = "blink" if blink else optic_for(status)
 
-    ow, oh = int(hw * 0.44), int(hh * 0.38)
+    ow, oh = int(hw * 0.40), int(hh * 0.34)
     eye = rotated_tile(optic(kind, accent, ow, oh), tilt,
                        ("optic", kind, tuple(accent), ow, oh))
-    eye_dx = hw * 0.40
-    eye_y = cy - hh * 0.14 + m["gy"]
+    eye_dx = hw * 0.36
+    eye_y = cy - hh * 0.10 + m["gy"]
     for sign in (-1, 1):
         p = _rot_pt(cx + sign * eye_dx + m["gx"], eye_y, pivot[0], pivot[1], tilt)
         _paste_centred(head, eye, p)
 
-    # --- Vocoder ---------------------------------------------------------
-    gx0, gy0, gx1, gy1 = geom["grille"]
-    bars = _bar_tile(geom, status, accent, m["energy"], t, face_alpha)
+    # --- Speech waveform (on the visor, below the optics) ----------------
+    vx0, vy0, vx1, vy1 = geom["visor"]
+    wave = _wave_tile(geom, status, accent, m["energy"], t, face_alpha)
     if abs(tilt) > 0.01:
-        bars = bars.rotate(tilt, resample=Image.BICUBIC, expand=True)
-    _paste_centred(head, bars,
-                   _rot_pt((gx0 + gx1) / 2, (gy0 + gy1) / 2, pivot[0], pivot[1], tilt))
-
-    # --- Antenna beacon --------------------------------------------------
-    pulse = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(t * 3.0))
-    tip = tuple(int(c * pulse) for c in accent)
-    ax, ay = _rot_pt(cx, geom["antenna_y"], pivot[0], pivot[1], tilt)
-    ImageDraw.Draw(head).ellipse((ax - 5, ay - 5, ax + 5, ay + 5),
-                                 fill=tip + (face_alpha,))
+        wave = wave.rotate(tilt, resample=Image.BICUBIC, expand=True)
+    _paste_centred(head, wave,
+                   _rot_pt(cx, vy1 - (vy1 - vy0) * 0.22, pivot[0], pivot[1], tilt))
 
     # --- Bob -------------------------------------------------------------
     out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
